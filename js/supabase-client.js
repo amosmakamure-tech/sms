@@ -145,7 +145,9 @@
         let parsed = ctx.data || ctx.data_channel || ctx.body || ctx.Message || null;
         if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch {} }
         if (parsed && parsed.error) return { ok: false, error: parsed.error };
-        if (typeof ctx.status === 'number' && ctx.status >= 400) return { ok: false, error: 'Account action rejected by server' };
+        const raw = typeof ctx.data === 'string' ? ctx.data : (error.message || '');
+        console.error('[SMS_SUPABASE] provision failed:', error, ctx);
+        if (typeof ctx.status === 'number' && ctx.status >= 400) return { ok: false, error: 'Account action rejected by server (' + ctx.status + '): ' + raw.slice(0, 300) };
         return { ok: false, error: errorMsg(error) };
       }
       return { ok: true, ...(data || {}) };
