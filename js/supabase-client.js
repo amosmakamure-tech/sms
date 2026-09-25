@@ -159,6 +159,8 @@
     createSchool(payload) { return this.provision('create-school', payload); },
     createUser(payload) { return this.provision('create-user', payload); },
     resetPassword(payload) { return this.provision('reset-password', payload); },
+    updateUser(payload) { return this.provision('update-user', payload); },
+    deleteUser(payload) { return this.provision('delete-user', payload); },
 
     /* ---------------- DATA SYNC ---------------- */
     get schoolId() { return profile ? profile.schoolId : null; },

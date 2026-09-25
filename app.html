@@ -4508,6 +4508,7 @@
                 const schools = (sRes.ok && sRes.schools) ? sRes.schools : [];
                 const uRes = await window.SMS_SUPABASE.listUsers();
                 const userList = (uRes.ok && uRes.users) ? uRes.users : [];
+                _cloudSchools = schools; _cloudUsers = userList;
                 card.innerHTML = `
                     <div class="card-header"><span class="card-title">🏫 Schools</span>
                         <button class="btn btn-primary" onclick="showAddSchool()">➕ Add School + Head</button>
@@ -4523,13 +4524,14 @@
                         <td><strong>${esc(u.display_name)}</strong></td>
                         <td>${esc(u.email)}</td>
                         <td><span class="badge-status badge-info">${roleLabel(u.role)}</span></td>
-                        <td><button class="btn btn-sm btn-primary" onclick="showResetPwd('${u.id}','${esc(u.display_name)}')">🔑 Reset</button></td>
+                        <td>${userActionButtons(u)}</td>
                     </tr>`).join('') || '<tr><td colspan="4" style="color:var(--text-light)">No accounts yet.</td></tr>'}
                     </tbody></table>`;
             } else {
                 const uRes = await window.SMS_SUPABASE.listUsers();
                 const userList = (uRes.ok && uRes.users) ? uRes.users : [];
                 const canManage = (role === 'head');
+                _cloudSchools = []; _cloudUsers = userList;
                 card.innerHTML = `
                     <div class="card-header"><span class="card-title">👥 ${esc(state.settings.schoolName || 'My School')} Staff Accounts</span>
                         ${canManage ? '<button class="btn btn-primary" onclick="showAddStaff()">➕ Add Staff</button>' : ''}
@@ -4540,10 +4542,99 @@
                         <td><strong>${esc(u.display_name)}</strong></td>
                         <td>${esc(u.email)}</td>
                         <td><span class="badge-status badge-info">${roleLabel(u.role)}</span></td>
-                        <td>${canManage ? `<button class="btn btn-sm btn-primary" onclick="showResetPwd('${u.id}','${esc(u.display_name)}')">🔑 Reset</button>` : ''}</td>
+                        <td>${userActionButtons(u)}</td>
                     </tr>`).join('') || '<tr><td colspan="4" style="color:var(--text-light)">No staff accounts yet.</td></tr>'}
                     </tbody></table>`;
             }
+        }
+
+        let _cloudUsers = [];
+        let _cloudSchools = [];
+
+        function schoolIdOf(u) { return (u && (u.school_id || u.schoolId)) || null; }
+
+        function canManageUser(u) {
+            const r = currentUser.role;
+            if (r === 'system_admin') return !!u && u.role !== 'system_admin';
+            if (r === 'head') return !!u && schoolIdOf(u) === currentUser.schoolId && u.role !== 'head' && u.role !== 'system_admin';
+            return false;
+        }
+
+        function userActionButtons(u) {
+            const view = `<button class="btn btn-sm btn-outline" onclick="showUserView('${u.id}')">👁 View</button>`;
+            const manage = canManageUser(u);
+            const edit = manage ? `<button class="btn btn-sm btn-outline" onclick="showUserEdit('${u.id}')">✏️ Edit</button>` : '';
+            const del = manage ? `<button class="btn btn-sm btn-outline" onclick="confirmDeleteUser('${u.id}','${esc(u.display_name)}')">🗑 Delete</button>` : '';
+            const reset = `<button class="btn btn-sm btn-primary" onclick="showResetPwd('${u.id}','${esc(u.display_name)}')">🔑 Reset</button>`;
+            return `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">${view}${manage ? edit : ''}${manage ? del : ''}${reset}</div>`;
+        }
+
+        function showUserView(id) {
+            const u = _cloudUsers.find(x => x.id === id);
+            if (!u) return;
+            const schoolName = schoolIdOf(u)
+                ? ((_cloudSchools.find(s => s.id === schoolIdOf(u)) || {}).name || '—')
+                : '— (System Administrator)';
+            openModal('Member Details', `<div class="form-grid">
+                <div class="form-group" style="grid-column:1/-1"><label>Name</label><div style="padding:8px 0"><strong>${esc(u.display_name)}</strong></div></div>
+                <div class="form-group"><label>Email</label><div style="padding:8px 0">${esc(u.email)}</div></div>
+                <div class="form-group"><label>Role</label><div style="padding:8px 0"><span class="badge-status badge-info">${roleLabel(u.role)}</span></div></div>
+                <div class="form-group" style="grid-column:1/-1"><label>School</label><div style="padding:8px 0">${esc(schoolName)}</div></div>
+                <div class="form-group"><label>Joined</label><div style="padding:8px 0">${u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</div></div>
+                <div class="form-group"><label>Account ID</label><div style="padding:8px 0;font-family:monospace;font-size:12px;">${esc(u.id)}</div></div>
+            </div>`, [{ label: 'OK', cls: 'btn-primary', action: 'closeModal()' }]);
+        }
+
+        function showUserEdit(id) {
+            const u = _cloudUsers.find(x => x.id === id);
+            if (!u || !canManageUser(u)) return;
+            const roleOpts = ['deputy_head', 'senior_teacher', 'teacher', 'accountant', 'parent']
+                .map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('');
+            openModal('Edit Member', `<div class="form-grid">
+                <div class="form-group" style="grid-column:1/-1"><label>Email (read-only)</label><input value="${esc(u.email)}" disabled style="background:#f5f5f5;"></div>
+                <div class="form-group"><label>Full Name*</label><input id="ceName" value="${esc(u.display_name)}"></div>
+                <div class="form-group"><label>Role</label><select id="ceRole">${roleOpts}</select></div>
+                <div class="form-group" style="grid-column:1/-1"><label>Set New Password (optional — leave blank to keep current)</label>
+                    <input type="password" id="cePassword" oninput="updatePwdMeter('cePassword','cePwdMeter')">
+                    <button class="btn btn-sm btn-outline" style="margin-top:6px;" onclick="cloudFillPassword('cePassword','cePwdMeter')">✨ Suggest</button>
+                    <div id="cePwdMeter" style="margin-top:6px;"></div></div>
+            </div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save Changes', cls: 'btn-primary', action: `saveUserEdit('${u.id}')` }
+            ]);
+        }
+
+        async function saveUserEdit(id) {
+            const name = val('ceName').trim();
+            const role = val('ceRole');
+            const pw = val('cePassword');
+            if (!name) { toast('Full name is required', 'error'); return; }
+            const payload = { target_user_id: id, name, role };
+            if (pw) {
+                if (!isStrongPassword(pw)) { toast('Password too weak: min 8 chars with UPPER + lower + number + symbol', 'error'); return; }
+                payload.password = pw;
+            }
+            const res = await window.SMS_SUPABASE.updateUser(payload);
+            if (!res.ok) { toast(res.error || 'Could not update the member', 'error'); return; }
+            toast('Member updated');
+            closeModal();
+            cloudTab();
+        }
+
+        function confirmDeleteUser(id, name) {
+            openModal('Delete this member?', `<p>Delete <strong>${esc(name)}</strong> from the system?</p>
+                <p style="font-size:13px;color:var(--text-light);">This permanently removes their login and profile. Any records they entered stay in the school database. This cannot be undone.</p>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Delete', cls: 'btn-danger', action: `deleteUserNow('${id}')` }
+            ]);
+        }
+
+        async function deleteUserNow(id) {
+            const res = await window.SMS_SUPABASE.deleteUser({ target_user_id: id });
+            if (!res.ok) { toast(res.error || 'Could not delete the member', 'error'); return; }
+            toast('Member removed from the system');
+            closeModal();
+            cloudTab();
         }
 
         function showAddSchool() {
