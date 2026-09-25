@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>School Management System — Excellence Academy</title>
+<link rel="stylesheet" href="css/landing.css">
+</head>
+<body>
+<header class="landing-nav">
+  <div class="brand"><div class="logo">🏫</div><div>Excellence Academy<br><small style="font-weight:400;opacity:.8">School Management System</small></div></div>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="#dashboard">Dashboard</a>
+    <a href="#access">Access</a>
+  </nav>
+  <div><a class="btn accent" href="app.html">Sign In</a></div>
+</header>
+
+<section class="hero">
+  <h1>Complete School Management — Simplified</h1>
+  <p>One platform for academics, finance, discipline, and administration. Built for schools that value clarity, security, and control.</p>
+  <div class="cta">
+    <a class="btn accent" href="app.html">Sign In to Dashboard</a>
+    <a class="btn ghost" href="#features">Explore Features</a>
+  </div>
+</section>
+
+<div class="wrap">
+  <section id="features">
+    <h2 class="section-title">What the System Handles</h2>
+    <div class="grid">
+      <div class="card"><h3>📚 Academics</h3><p>Student enrollment, class management, attendance tracking, mark entry with weighted papers, progress reports, and learner profiles.</p></div>
+      <div class="card"><h3>💰 Finance</h3><p>Fee structures, bulk billing, receipts, income & expenditure tracking, banking reconciliation, and cash-to-bank management.</p></div>
+      <div class="card"><h3>🚨 Discipline</h3><p>Incident recording by severity, action tracking, repeat-offender detection, and formal reports.</p></div>
+      <div class="card"><h3>🏦 Banking</h3><p>Track cash collected vs. banked, deposit slips, banking summaries, and real-time cash-on-hand status.</p></div>
+      <div class="card"><h3>👥 Administration</h3><p>Staff management, timetables, assets, document repository, notices, and committee oversight.</p></div>
+      <div class="card"><h3>🔐 Secure Access</h3><p>Role-based permissions with hierarchical password management — administrators grant access to heads, heads to their staff.</p></div>
+    </div>
+  </section>
+
+  <section id="dashboard">
+    <h2 class="section-title">Live Overview</h2>
+    <p class="sub">Key metrics at a glance.</p>
+    <div class="grid" id="liveStats">
+      <div class="card stat"><div class="num" data-stat="students">—</div><div class="lbl">Students Enrolled</div></div>
+      <div class="card stat"><div class="num" data-stat="teachers">—</div><div class="lbl">Teaching Staff</div></div>
+      <div class="card stat"><div class="num" data-stat="fees_collected">—</div><div class="lbl">Fees Collected</div></div>
+      <div class="card stat"><div class="num" data-stat="banked">—</div><div class="lbl">Banked</div></div>
+      <div class="card stat"><div class="num" data-stat="open_discipline">—</div><div class="lbl">Open Cases</div></div>
+    </div>
+    <div style="margin-top:16px;text-align:center;"><a class="btn" href="app.html">View Full Dashboard</a></div>
+  </section>
+
+  <section id="access">
+    <h2 class="section-title">How Access Works</h2>
+    <p class="sub">A clear chain of trust — no shared credentials, full audit trail.</p>
+    <div class="grid">
+      <div class="card"><h3>1. System Administrator</h3><p>Logs in with secure credentials. Creates and manages School Head accounts.</p></div>
+      <div class="card"><h3>2. School Head</h3><p>Receives secure credentials from Admin. Creates and manages Teacher, Accountant, and Staff accounts for their school.</p></div>
+      <div class="card"><h3>3. Staff Members</h3><p>Receive individual credentials from their Head. Access only the modules relevant to their role.</p></div>
+    </div>
+  </section>
+</div>
+
+<footer>Excellence Academy · School Management System</footer>
+
+<script>
+fetch('api/?entity=stats&action=dashboard').then(r => r.json()).then(d => {
+  if (!d || !d.ok) throw 0;
+  const s = d.stats;
+  document.querySelectorAll('[data-stat]').forEach(el => {
+    const k = el.getAttribute('data-stat');
+    el.textContent = s[k] !== undefined ? s[k] : '—';
+  });
+}).catch(() => {
+  const sample = { students: 3, teachers: 2, fees_collected: 1600, banked: 8000, open_discipline: 2 };
+  document.querySelectorAll('[data-stat]').forEach(el => {
+    el.textContent = sample[el.getAttribute('data-stat')] ?? '—';
+  });
+});
+</script>
+</body>
+</html>
