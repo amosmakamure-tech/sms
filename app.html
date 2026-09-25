@@ -1941,7 +1941,7 @@
             // Update current user if they are head
             if (currentUser && currentUser.role === 'head') {
                 currentUser.name = state.settings.headName;
-                $('sidebarUser').textContent = currentUser.name + ' (' + cap(currentUser.role) + ')';
+                $('sidebarUser').textContent = currentUser.name + ' (' + roleLabel(currentUser.role) + ')';
                 $('userAvatar').textContent = currentUser.name[0];
             }
         }
@@ -1958,6 +1958,20 @@
         }
 
         function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+        function roleLabel(r) {
+            const map = {
+                system_admin: 'System Administrator',
+                admin: 'Administrator',
+                head: 'School Head',
+                deputy_head: 'Deputy Head',
+                senior_teacher: 'Senior Teacher',
+                teacher: 'Teacher',
+                accountant: 'Accountant',
+                parent: 'Parent'
+            };
+            return map[r] || cap(r);
+        }
 
         function toast(msg, type = 'info') {
             const c = $('toastContainer');
@@ -2135,7 +2149,7 @@
                 $('sidebarUser').textContent = currentUser.name;
             } else {
                 $('sidebarSchoolName').textContent = state.settings.schoolName;
-                $('sidebarUser').textContent = currentUser.name + ' (' + cap(currentUser.role) + ')';
+                $('sidebarUser').textContent = currentUser.name + ' (' + roleLabel(currentUser.role) + ')';
             }
             if (state.settings.logo) {
                 const logoEl = $('sidebarLogo');
@@ -2163,21 +2177,21 @@
                     roles: ['admin', 'head', 'teacher', 'accountant', 'parent', 'system_admin'] },
                 ] },
             { section: 'Academic', items: [
-                    { id: 'students', icon: '👨‍🎓', label: 'Students', roles: ['admin', 'head', 'teacher'] },
-                    { id: 'teachers', icon: '👩‍🏫', label: 'Teachers', roles: ['admin', 'head'] },
-                    { id: 'classes', icon: '🏛️', label: 'Classes & Subjects', roles: ['admin', 'head'] },
-                    { id: 'attendance', icon: '✅', label: 'Attendance', roles: ['admin', 'head', 'teacher'] },
-                    { id: 'marks', icon: '📝', label: 'Marks & Grades', roles: ['admin', 'head', 'teacher'] },
+                    { id: 'students', icon: '👨‍🎓', label: 'Students', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher'] },
+                    { id: 'teachers', icon: '👩‍🏫', label: 'Teachers', roles: ['admin', 'head', 'deputy_head'] },
+                    { id: 'classes', icon: '🏛️', label: 'Classes & Subjects', roles: ['admin', 'head', 'deputy_head'] },
+                    { id: 'attendance', icon: '✅', label: 'Attendance', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher'] },
+                    { id: 'marks', icon: '📝', label: 'Marks & Grades', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher'] },
                     { id: 'reports', icon: '📋', label: 'Progress Reports',
-                    roles: ['admin', 'head', 'teacher', 'parent'] },
-                    { id: 'timetable', icon: '📅', label: 'Timetable', roles: ['admin', 'head', 'teacher',
+                    roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher', 'parent'] },
+                    { id: 'timetable', icon: '📅', label: 'Timetable', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher',
                             'parent'
                         ] },
-                    { id: 'exams', icon: '📝', label: 'Exam Schedule', roles: ['admin', 'head', 'teacher',
+                    { id: 'exams', icon: '📝', label: 'Exam Schedule', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher',
                             'parent'
                         ] },
                     { id: 'learnerprofile', icon: '👤', label: 'Learner Profile',
-                    roles: ['admin', 'head', 'teacher'] },
+                    roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher'] },
                 ] },
             { section: 'Finance', items: [
                     { id: 'fees', icon: '💰', label: 'Fees Management',
@@ -2192,16 +2206,16 @@
                 ] },
             { section: 'Administration', items: [
                     { id: 'noticeboard', icon: '📢', label: 'Noticeboard',
-                    roles: ['admin', 'head', 'teacher', 'accountant', 'parent'] },
-                    { id: 'committees', icon: '👥', label: 'Committees', roles: ['admin', 'head'] },
+                    roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher', 'accountant', 'parent'] },
+                    { id: 'committees', icon: '👥', label: 'Committees', roles: ['admin', 'head', 'deputy_head'] },
                     { id: 'assets', icon: '🛋️', label: 'Assets', roles: ['admin', 'head', 'accountant'] },
-                    { id: 'documents', icon: '📁', label: 'Documents', roles: ['admin', 'head', 'teacher',
+                    { id: 'documents', icon: '📁', label: 'Documents', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher',
                             'accountant'
                         ] },
                     { id: 'staff', icon: '🧑‍💼', label: 'Staff Management', roles: ['admin', 'head'] },
-                    { id: 'administration', icon: '🏢', label: 'Administration', roles: ['admin', 'head'] },
-                    { id: 'supervision', icon: '🔍', label: 'Supervision', roles: ['admin', 'head'] },
-                    { id: 'discipline', icon: '🚨', label: 'Discipline', roles: ['admin', 'head', 'teacher'] },
+                    { id: 'administration', icon: '🏢', label: 'Administration', roles: ['admin', 'head', 'deputy_head'] },
+                    { id: 'supervision', icon: '🔍', label: 'Supervision', roles: ['admin', 'head', 'deputy_head'] },
+                    { id: 'discipline', icon: '🚨', label: 'Discipline', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher'] },
                     { id: 'settings', icon: '⚙️', label: 'Settings', roles: ['admin', 'head', 'system_admin'] },
                 ] },
         ];
@@ -4508,7 +4522,7 @@
                     ${userList.map(u => `<tr>
                         <td><strong>${esc(u.display_name)}</strong></td>
                         <td>${esc(u.email)}</td>
-                        <td><span class="badge-status badge-info">${cap(u.role)}</span></td>
+                        <td><span class="badge-status badge-info">${roleLabel(u.role)}</span></td>
                         <td><button class="btn btn-sm btn-primary" onclick="showResetPwd('${u.id}','${esc(u.display_name)}')">🔑 Reset</button></td>
                     </tr>`).join('') || '<tr><td colspan="4" style="color:var(--text-light)">No accounts yet.</td></tr>'}
                     </tbody></table>`;
@@ -4525,7 +4539,7 @@
                     ${userList.map(u => `<tr>
                         <td><strong>${esc(u.display_name)}</strong></td>
                         <td>${esc(u.email)}</td>
-                        <td><span class="badge-status badge-info">${cap(u.role)}</span></td>
+                        <td><span class="badge-status badge-info">${roleLabel(u.role)}</span></td>
                         <td>${canManage ? `<button class="btn btn-sm btn-primary" onclick="showResetPwd('${u.id}','${esc(u.display_name)}')">🔑 Reset</button>` : ''}</td>
                     </tr>`).join('') || '<tr><td colspan="4" style="color:var(--text-light)">No staff accounts yet.</td></tr>'}
                     </tbody></table>`;
@@ -4575,6 +4589,8 @@
                 <div class="form-group" style="grid-column:1/-1"><label>Full Name*</label><input id="csStaffName" oninput="cloudFillPassword('csStaffPassword','csStaffPwdMeter')"></div>
                 <div class="form-group"><label>Email*</label><input id="csStaffEmail" placeholder="staff@school.edu"></div>
                 <div class="form-group"><label>Role*</label><select id="csStaffRole">
+                    <option value="deputy_head">Deputy Head</option>
+                    <option value="senior_teacher">Senior Teacher</option>
                     <option value="teacher">Teacher</option>
                     <option value="accountant">Accountant</option>
                     <option value="parent">Parent</option>
@@ -8031,7 +8047,7 @@ function exportDepositsCSV() {
                     ${state.users.map(u => `<tr>
                         <td><strong>${u.username}</strong></td>
                         <td>${u.name}</td>
-                        <td><span class="badge-status badge-info">${cap(u.role)}</span></td>
+                        <td><span class="badge-status badge-info">${roleLabel(u.role)}</span></td>
                         <td>${u.email}</td>
                         <td>
                             <button class="btn btn-sm btn-primary" onclick="editSystemUser('${u.id}')" ${cloud ? 'style="display:none"' : ''}>✏️</button>
@@ -8178,7 +8194,7 @@ function exportDepositsCSV() {
                 <div class="form-group"><label>Username</label><input id="uUsername" value="${u.username}"></div>
                 <div class="form-group"><label>New Password (min 8: UPPER + lower + number + symbol)</label><input type="password" id="uPassword" placeholder="Leave blank to keep current" oninput="updatePwdMeter('uPassword','uPwdMeter')"><div id="uPwdMeter" style="margin-top:6px;"></div></div>
                 <div class="form-group"><label>Role</label><select id="uRole">
-                    ${['admin','head','teacher','accountant','parent'].map(r => `<option value="${r}" ${u.role===r?'selected':''}>${cap(r)}</option>`).join('')}
+                    ${['admin','head','deputy_head','senior_teacher','teacher','accountant','parent'].map(r => `<option value="${r}" ${u.role===r?'selected':''}>${roleLabel(r)}</option>`).join('')}
                 </select></div>
                 <div class="form-group"><label>Email</label><input type="email" id="uEmail" value="${u.email}"></div>
             </div>`, [
@@ -8209,7 +8225,7 @@ function exportDepositsCSV() {
             if (currentUser && currentUser.id === id) {
                 currentUser.name = state.users[idx].name;
                 currentUser.role = state.users[idx].role;
-                $('sidebarUser').textContent = currentUser.name + ' (' + cap(currentUser.role) + ')';
+                $('sidebarUser').textContent = currentUser.name + ' (' + roleLabel(currentUser.role) + ')';
                 $('userAvatar').textContent = currentUser.name[0];
             }
             saveState();
