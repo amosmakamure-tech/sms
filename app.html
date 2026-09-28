@@ -3551,7 +3551,7 @@
                             const cfg = getSubjectConfig(s);
                             return `<tr>
                                 <td><strong>${s}</strong></td>
-                                <td style="font-size:12px;">${cfg.papers.map(p => `${p.name} (/${p.maxRaw} × ${p.weight})`).join('<br>')}</td>
+                                <td style="font-size:12px;">${cfg.papers.map(p => `${p.name} (/${p.maxRaw} × ${p.weight})`).join('<br>')}${cfg.default ? '<br><span style="color:var(--text-light);font-size:11px;">default — click Configure to set</span>' : ''}</td>
                                 <td>${cfg.caMax}</td>
                                 <td>${cfg.examMax}</td>
                                 <td><strong>${Number(cfg.caMax) + Number(cfg.examMax)}</strong></td>
@@ -3595,7 +3595,9 @@
                 classesPage();
                 toast('Subject added!', 'success'); } }
 
-        function removeSubject(i) { if (confirm('Remove subject?')) { state.subjects.splice(i, 1);
+        function removeSubject(i) { if (confirm('Remove subject?')) { const name = state.subjects[i]; state.subjects
+                .splice(i, 1);
+                if (state.subjectConfigs && name) delete state.subjectConfigs[name];
                 saveState();
                 classesPage(); } }
 
@@ -3662,7 +3664,7 @@
             if (!papers.length) { toast('Add at least one paper', 'error'); return; }
             const examMax = parseFloat(val('scExamMax')) || papers.reduce((s, p) => s + p.weight, 0);
             if (!state.subjectConfigs) state.subjectConfigs = {};
-            state.subjectConfigs[subject] = { papers, caMax: parseFloat(val('scCaMax')) || 0, examMax };
+            state.subjectConfigs[subject] = { papers, caMax: parseFloat(val('scCaMax')) || 0, examMax, configured: true };
             saveState();
             closeModal();
             classesPage();
@@ -3934,17 +3936,26 @@
         }
 
         // ---------- Subject paper configs: raw marks + weighting -> final exam mark ----------
+        // Returns the saved config for a subject, or a NON-persisted default fallback.
+        // IMPORTANT: defaults are NOT written into state.subjectConfigs, so they can
+        // never be pushed to the DB and overwrite a config the user actually saved.
         function getSubjectConfig(subject) {
-            if (!state.subjectConfigs) state.subjectConfigs = {};
-            let cfg = state.subjectConfigs[subject];
-            if (!cfg) {
-                cfg = { papers: [{ name: 'Paper 1', maxRaw: 100, weight: 60 }], caMax: 40, examMax: 60 };
-                state.subjectConfigs[subject] = cfg;
-            }
-            if (!cfg.papers || !cfg.papers.length) cfg.papers = [{ name: 'Paper 1', maxRaw: 100, weight: 60 }];
-            if (cfg.caMax === undefined || cfg.caMax === null) cfg.caMax = 40;
-            if (cfg.examMax === undefined || cfg.examMax === null) cfg.examMax = cfg.papers.reduce((s, p) => s + (Number(p.weight) || 0), 0) || 60;
-            return cfg;
+            const stored = (state.subjectConfigs && state.subjectConfigs[subject]) || null;
+            let papers = (stored && Array.isArray(stored.papers) && stored.papers.length) ? stored.papers : [{ name: 'Paper 1', maxRaw: 100, weight: 60 }];
+            papers = papers.map(p => ({
+                name: p.name || 'Paper 1',
+                maxRaw: Number(p.maxRaw) > 0 ? Number(p.maxRaw) : 100,
+                weight: Number(p.weight) || 0
+            }));
+            const examSum = papers.reduce((s, p) => s + (Number(p.weight) || 0), 0);
+            const hasCa = stored && stored.caMax !== undefined && stored.caMax !== null;
+            const hasExam = stored && stored.examMax !== undefined && stored.examMax !== null;
+            return {
+                papers,
+                caMax: hasCa ? Number(stored.caMax) || 0 : 40,
+                examMax: hasExam ? Number(stored.examMax) || examSum : (examSum || 60),
+                default: !stored,
+            };
         }
 
         function calcExamFromPapers(subject, raws) {
@@ -4121,7 +4132,7 @@
             const cfg = getSubjectConfig(subj);
             window._marksSubj = subj;
             if (hint) hint.innerHTML =
-                `📄 Papers: ${cfg.papers.map(p => `<strong>${p.name}</strong> (raw /${p.maxRaw} × weight ${p.weight})`).join(' + ')} → Exam /${cfg.examMax} &nbsp;|&nbsp; CA /${cfg.caMax} &nbsp;|&nbsp; Total /${cfg.caMax + cfg.examMax} <span style="color:var(--text-light)">(configure in Classes &amp; Subjects → Subjects)</span>`;
+                `📄 Papers: ${cfg.papers.map(p => `<strong>${p.name}</strong> (raw /${p.maxRaw} × weight ${p.weight})`).join(' + ')} → Exam /${cfg.examMax} &nbsp;|&nbsp; CA /${cfg.caMax} &nbsp;|&nbsp; Total /${cfg.caMax + cfg.examMax} ${cfg.default ? '<span style="color:var(--warning);">(default setup — configure in Classes &amp; Subjects → Subjects)</span>' : '<span style="color:var(--text-light);">(configured ✓)</span>'}`;
             const studentsInClass = state.students.filter(s => s.class === cls && s.status === 'Active');
             const year = state.settings.academicYear;
             grid.innerHTML = `
