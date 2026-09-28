@@ -4473,6 +4473,7 @@
                 <div class="card-header"><span class="card-title">📋 Student Progress Reports</span>
                     <div class="btn-group">
                         <button class="btn btn-outline" onclick="exportAllReportsPDF()">📄 Export All PDF</button>
+                        <button class="btn btn-success" onclick="sendAllWhatsAppReports()">📱 WhatsApp All (This Class)</button>
                     </div>
                 </div>
                 <div class="filter-bar">
@@ -4844,6 +4845,7 @@
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
                         <div><h3 style="color:var(--primary);font-size:16px;">${s.name}</h3><span style="color:var(--text-light);font-size:12px;">${s.admNo} | ${cls} | ${term}</span></div>
                         <button class="btn btn-outline btn-sm" onclick="printSingleReport('${s.id}','${term}')">📄 Print Report</button>
+                        <button class="btn btn-success btn-sm" onclick="sendWhatsAppReport('${s.id}','${term}')">📱 WhatsApp Report</button>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0;">
                         <div style="background:#e8eaf6;border-radius:8px;padding:10px;text-align:center;">
@@ -4874,6 +4876,83 @@
                     </div>
                 </div>`;
             }).join('') || '<div class="empty-state"><div class="icon">📋</div><h3>No students in selected class</h3></div>';
+        }
+
+        <!-- WhatsApp progress reports (deep-link: opens the parent's chat with a report summary) -->
+        function buildWhatsAppReportText(s, term) {
+            const year = state.settings.academicYear;
+            const sMarks = state.marks.filter(m => m.studentId === s.id && m.term === term);
+            const sAtt = state.attendance.filter(a => a.class === s.class && a.records);
+            const presentDays = sAtt.filter(a => a.records[s.id] === 'P').length;
+            const totalDays = sAtt.length;
+            const attPct = totalDays ? Math.round(presentDays / totalDays * 100) : 0;
+
+            const subjectTotals = {};
+            sMarks.forEach(m => {
+                if (!subjectTotals[m.subject]) subjectTotals[m.subject] = { ca: 0, exam: 0 };
+                if (m.type === 'CA') subjectTotals[m.subject].ca = Number(m.mark) || 0;
+                else subjectTotals[m.subject].exam = Number(m.mark) || 0;
+            });
+            const subjectAverages = Object.keys(subjectTotals).map(subj => {
+                const total = Math.round((subjectTotals[subj].ca + subjectTotals[subj].exam) * 10) / 10;
+                return { subject: subj, total, grade: getGrade(total), remark: getRemark(total) };
+            });
+            const avgMark = subjectAverages.length ? Math.round(subjectAverages.reduce((sum, x) => sum + x.total, 0) / subjectAverages.length * 10) / 10 : 0;
+
+            const rk = state.overallRemarks ? state.overallRemarks[reportRemarkKey(s.class, term)] : null;
+            const tR = (rk && rk.teacherRemark) || autoRemarkFor(avgMark, subjectAverages.length);
+            const hR = (rk && rk.headRemark) || autoRemarkFor(avgMark, subjectAverages.length);
+            const subjectLines = subjectAverages.length
+                ? subjectAverages.map(x => `• ${x.subject}: ${x.total}% (${x.grade})`).join('\n')
+                : '• No marks recorded this term.';
+            const contact = waContactLine();
+
+            return [
+                `🏫 ${state.settings.schoolName}`,
+                `${year} · ${term}`,
+                '',
+                `👤 ${s.name} (${s.admNo}) — ${s.class}`,
+                `📊 Average: ${avgMark}%  (Overall Grade: ${getGrade(avgMark)})`,
+                `✅ Attendance: ${presentDays}/${totalDays} days (${attPct}%)`,
+                '',
+                '📚 Subjects:',
+                subjectLines,
+                '',
+                `📝 Class Teacher: ${tR}`,
+                `👨‍💼 Head: ${hR}`,
+                '',
+                `Next Term (${state.settings.nextTerm || 'TBA'}):`,
+                `• Fees: ${fmt(state.settings.nextTermFees || 0)}`,
+                `• Opens: ${state.settings.nextTermOpens || 'TBA'}`,
+                contact ? `\n${contact}` : '',
+            ].join('\n');
+        }
+
+        function sendWhatsAppReport(studentId, term) {
+            const s = state.students.find(x => x.id === studentId);
+            if (!s) return;
+            if (!s.parentWhatsapp || !s.parentWhatsapp.trim()) {
+                toast('No WhatsApp number for this parent', 'error');
+                return;
+            }
+            const msg = encodeURIComponent(buildWhatsAppReportText(s, term));
+            window.open(`https://wa.me/${s.parentWhatsapp.replace(/[^0-9]/g, '')}?text=${msg}`, '_blank');
+        }
+
+        function sendAllWhatsAppReports() {
+            const cls = val('rpClass');
+            const term = val('rpTerm');
+            if (!cls) { toast('Select a class first', 'error'); return; }
+            const targets = state.students.filter(s => s.class === cls && s.parentWhatsapp && s.parentWhatsapp.trim());
+            if (!targets.length) { toast('No students in this class with a WhatsApp number', 'error'); return; }
+            if (!confirm(`Send ${term} reports to ${targets.length} parent(s)?\n\nThis opens one WhatsApp chat per student — allow pop-ups for this site.`)) return;
+            targets.forEach((s, i) => {
+                setTimeout(() => {
+                    const msg = encodeURIComponent(buildWhatsAppReportText(s, term));
+                    window.open(`https://wa.me/${s.parentWhatsapp.replace(/[^0-9]/g, '')}?text=${msg}`, '_blank');
+                }, i * 400);
+            });
+            toast(`Opening ${targets.length} WhatsApp report chat(s)...`, 'success');
         }
 
         function printSingleReport(studentId, term) {
