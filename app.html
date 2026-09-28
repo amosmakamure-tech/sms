@@ -1670,7 +1670,7 @@
                     phone: '+1 234 567 8900',
                     email: 'info@excellenceacademy.edu',
                     currency: 'USD',
-                    whatsappNumber: '+1234567890',
+                    whatsappNumber: '',
                     whatsappEnabled: true,
                     logo: null,
                 },
@@ -2750,6 +2750,15 @@
             renderPagination(STUDENT_PAGE_KEY, totalPages, 'studentPagination', 'goToStudentPage');
         }
 
+        // Deep-link mode: every message opens a WhatsApp chat to the parent's number
+        // using the sender's own WhatsApp. The school's settings.whatsappNumber is ONLY
+        // used (if a real number is entered) as a contact line inside the message.
+        function waContactLine() {
+            const n = (state.settings.whatsappNumber || '').trim();
+            if (n && n !== '+1234567890') return `\n\nWhatsApp us on ${n}`;
+            return '';
+        }
+
         function sendWhatsAppToParent(studentId) {
             const s = state.students.find(x => x.id === studentId);
             if (!s) return;
@@ -2757,7 +2766,8 @@
                 toast('No WhatsApp number for this parent', 'error');
                 return;
             }
-            const msg = encodeURIComponent(`Dear Parent/Guardian of ${s.name},\n\nThis is a message from ${state.settings.schoolName}.\n\nFor inquiries, please contact us on ${state.settings.phone}.\n\nRegards,\n${state.settings.headName}`);
+            const contact = waContactLine();
+            const msg = encodeURIComponent(`Dear Parent/Guardian of ${s.name},\n\nThis is a message from ${state.settings.schoolName}.\n\nFor inquiries, please contact us on ${state.settings.phone}${contact}.\n\nRegards,\n${state.settings.headName}`);
             window.open(`https://wa.me/${s.parentWhatsapp.replace(/[^0-9]/g, '')}?text=${msg}`, '_blank');
         }
 
@@ -2765,15 +2775,20 @@
             const cls = val('sFiltClass');
             let students = state.students.filter(s => s.status === 'Active');
             if (cls) students = students.filter(s => s.class === cls);
-            const hasWhatsapp = students.filter(s => s.parentWhatsapp);
-            if (!hasWhatsapp.length) {
+            const targets = students.filter(s => s.parentWhatsapp && s.parentWhatsapp.trim());
+            if (!targets.length) {
                 toast('No active students with WhatsApp numbers', 'error');
                 return;
             }
-            const msg = encodeURIComponent(`Dear Parent/Guardian,\n\nThis is a message from ${state.settings.schoolName}.\n\nFor inquiries, please contact us on ${state.settings.phone}.\n\nRegards,\n${state.settings.headName}`);
-            // Open first parent's WhatsApp as demo
-            window.open(`https://wa.me/${hasWhatsapp[0].parentWhatsapp.replace(/[^0-9]/g, '')}?text=${msg}`, '_blank');
-            toast(`Opening WhatsApp for first parent of ${hasWhatsapp.length} parents`, 'success');
+            if (!confirm(`Open ${targets.length} WhatsApp chat(s), one per parent?\n\nYou must allow pop-ups for this site, otherwise the chats won't open.`)) return;
+            targets.forEach((s, i) => {
+                setTimeout(() => {
+                    const contact = waContactLine();
+                    const msg = encodeURIComponent(`Dear Parent/Guardian of ${s.name},\n\nThis is a message from ${state.settings.schoolName}.\n\nFor inquiries, please contact us on ${state.settings.phone}${contact}.\n\nRegards,\n${state.settings.headName}`);
+                    window.open(`https://wa.me/${s.parentWhatsapp.replace(/[^0-9]/g, '')}?text=${msg}`, '_blank');
+                }, i * 400);
+            });
+            toast(`Opening ${targets.length} WhatsApp chat(s)...`, 'success');
         }
 
         function goToStudentPage(p) {
@@ -5395,23 +5410,24 @@
             toast(`${count} fee records created for ${term} ${year}`, 'success');
         }
 
+        function buildWAMessage(type, fee) {
+            const p = fee ? ` of ${fee.studentName}` : '';
+            const contact = waContactLine();
+            if (type === 'reminder') {
+                return `Dear Parent/Guardian${p},\n\nThis is a friendly reminder that school fees for ${state.settings.term} (${state.settings.academicYear}) are due.\n\nFee Structure:\n${state.feeComponents.map(fc=>`• ${fc.name}: ${fmt(fc.amount)}`).join('\n')}\n\nTotal Due: ${fmt(state.feeComponents.reduce((s,fc)=>s+fc.amount,0))}\n\nPlease make payment at your earliest convenience.\n\nThank you,\n${state.settings.schoolName}${contact}`;
+            } else if (type === 'receipt') {
+                return `Dear Parent/Guardian${p},\n\nYour payment receipt is available for download.\n\nSchool: ${state.settings.schoolName}\nTerm: ${state.settings.term}\nAcademic Year: ${state.settings.academicYear}\n\nFor enquiries, contact ${state.settings.phone}${contact}`;
+            }
+            return `Dear Parent/Guardian${p},\n\nEnd of Term Performance Report:\n\nSchool: ${state.settings.schoolName}\nTerm: ${state.settings.term}\nAcademic Year: ${state.settings.academicYear}\n\nYour child's progress report is ready for collection at the school office.\n\n${state.settings.headName}\nHead${contact}`;
+        }
+
         function generateWAPreview() {
             const cls = val('waClass');
             const type = val('waType');
             const preview = $('waPreview');
             if (!preview) return;
             const unpaidStudents = state.fees.filter(f => f.class === cls && f.status !== 'Paid');
-            let msg = '';
-            if (type === 'reminder') {
-                msg =
-                    `Dear Parent/Guardian,\n\nThis is a friendly reminder that school fees for ${state.settings.term} (${state.settings.academicYear}) are due.\n\nFee Structure:\n${state.feeComponents.map(fc=>`• ${fc.name}: ${fmt(fc.amount)}`).join('\n')}\n\nTotal Due: ${fmt(state.feeComponents.reduce((s,fc)=>s+fc.amount,0))}\n\nPlease make payment at your earliest convenience.\n\nThank you,\n${state.settings.schoolName}`;
-            } else if (type === 'receipt') {
-                msg =
-                    `Dear Parent/Guardian,\n\nYour payment receipt is available for download.\n\nSchool: ${state.settings.schoolName}\nTerm: ${state.settings.term}\nAcademic Year: ${state.settings.academicYear}\n\nFor enquiries, contact ${state.settings.phone}`;
-            } else {
-                msg =
-                    `Dear Parent/Guardian,\n\nEnd of Term Performance Report:\n\nSchool: ${state.settings.schoolName}\nTerm: ${state.settings.term}\nAcademic Year: ${state.settings.academicYear}\n\nYour child's progress report is ready for collection at the school office.\n\n${state.settings.headName}\nHead`;
-            }
+            const msg = buildWAMessage(type);
             preview.innerHTML = `<div class="whatsapp-panel">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="font-size:20px;">💬</span><strong>WhatsApp Preview</strong></div>
                 <div class="whatsapp-preview">${msg}</div>
@@ -5419,7 +5435,27 @@
             </div>`;
         }
 
-        function sendWANotifications() { toast('WhatsApp notifications sent! (Simulation)', 'success'); }
+        function sendWANotifications() {
+            const cls = val('waClass');
+            if (!cls) { toast('Select a class first', 'error'); return; }
+            const type = val('waType');
+            const unpaid = state.fees
+                .filter(f => f.class === cls && f.status !== 'Paid')
+                .map(f => {
+                    const s = state.students.find(x => x.id === f.studentId);
+                    return (s && s.parentWhatsapp && s.parentWhatsapp.trim()) ? { fee: f, number: s.parentWhatsapp } : null;
+                })
+                .filter(Boolean);
+            if (!unpaid.length) { toast('No unpaid parents in this class with a WhatsApp number', 'error'); return; }
+            if (!confirm(`Send ${type} to ${unpaid.length} unpaid parent(s)?\n\nThis opens one WhatsApp chat per parent — allow pop-ups for this site.`)) return;
+            unpaid.forEach((u, i) => {
+                setTimeout(() => {
+                    const msg = encodeURIComponent(buildWAMessage(type, u.fee));
+                    window.open(`https://wa.me/${u.number.replace(/[^0-9]/g, '')}?text=${msg}`, '_blank');
+                }, i * 400);
+            });
+            toast(`Opening ${unpaid.length} WhatsApp chat(s) for unpaid fees...`, 'success');
+        }
 
         function exportFeesCSV() {
             const headers = ['Student', 'Class', ...state.feeComponents.map(fc => fc.name), 'Total Paid', 'Status'];
@@ -8119,7 +8155,7 @@ function exportDepositsCSV() {
                         <div class="form-group"><label>Currency</label><select id="setCurrency">
                             ${['USD','GBP','EUR','ZWL','ZAR','KES','NGN','GHS'].map(c => `<option ${s.currency===c?'selected':''}>${c}</option>`).join('')}
                         </select></div>
-                        <div class="form-group"><label>WhatsApp Number</label><input id="setWaNum" value="${s.whatsappNumber}"></div>
+                        <div class="form-group"><label>School WhatsApp Number (optional)</label><input id="setWaNum" value="${s.whatsappNumber || ''}" placeholder="+263712345678"><p style="font-size:11px;color:var(--text-light);margin-top:4px;">Not required — deep-link mode sends from each sender's own WhatsApp. If you enter a real number here, it appears as a "WhatsApp us on …" contact line inside messages.</p></div>
                         <div class="form-group"><label>Next Term</label><select id="setNextTerm">
                             ${['Term 1','Term 2','Term 3'].map(t => `<option ${s.nextTerm===t?'selected':''}>${t}</option>`).join('')}
                         </select></div>
