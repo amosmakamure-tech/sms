@@ -5211,7 +5211,19 @@
 
             const wrap = $('feeTableWrap');
             if (!wrap) return;
-            wrap.innerHTML = `<table>
+            const billed = fees.reduce((s, f) => s + feeBilledTotal(f), 0);
+            const paid = fees.reduce((s, f) => s + feePaidTotal(f), 0);
+            const owing = billed - paid;
+            const unpaidCount = fees.filter(f => f.status !== 'Paid').length;
+            const scope = cls ? `Class: ${cls}` : search ? `Search: "${search}"` : (status ? `Status: ${status}` : 'All students');
+            wrap.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px;">
+                <div style="background:#e3f2fd;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">STUDENTS (${scope})</div><div style="font-weight:700;font-size:18px;">${fees.length}</div><div style="font-size:11px;color:var(--text-light);">${unpaidCount} with balance</div></div>
+                <div style="background:#f1f8e9;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">TOTAL BILLED</div><div style="font-weight:700;font-size:18px;">${fmt(billed)}</div></div>
+                <div style="background:#e8f5e9;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">TOTAL PAID</div><div style="font-weight:700;font-size:18px;">${fmt(paid)}</div></div>
+                <div style="background:${owing>0?'#ffebee':'#e8f5e9'};padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">AMOUNTS OWING</div><div style="font-weight:700;font-size:18px;color:${owing>0?'var(--danger)':'var(--success)'};">${fmt(owing)}</div></div>
+            </div>
+            <table>
                 <thead><tr>
                     <th>Student</th><th>Class</th>
                     ${state.feeComponents.map(fc => `<th>${fc.name}</th>`).join('')}
