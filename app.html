@@ -5141,13 +5141,20 @@
             <div id="tab-fees-bulk" class="tab-content">
                 <div class="card">
                     <div class="card-header"><span class="card-title">📦 Bulk Fee Billing</span>
-                        <button class="btn btn-primary" onclick="bulkBillFees()">🚀 Generate Bills for All Students</button>
+                        <button class="btn btn-primary" onclick="bulkBillFees()">🚀 Generate Bills</button>
                     </div>
-                    <p style="color:var(--text-light);font-size:13px;">This bills each active student the full fee structure for the current term: per-component billed amounts show in the table, total paid starts at $0 and the full amount shows as balance (status: Unpaid). Existing records for this term will be skipped.</p>
-                    <div style="margin-top:12px;background:#e3f2fd;padding:12px;border-radius:8px;">
+                    <p style="color:var(--text-light);font-size:13px;">Bills each selected active student the full fee structure for the current term: per-component billed amounts show in the table, total paid starts at $0 and the full amount shows as balance (status: Unpaid). Existing records for this term will be skipped.</p>
+                    <div class="filter-bar" style="margin-top:12px;">
+                        <select id="bulkClass" onchange="bulkBillPreview()">
+                            <option value="">All Classes</option>
+                            ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                        </select>
+                        <input type="number" id="bulkLimit" min="0" step="1" value="0" placeholder="Limit (0 = all)" style="max-width:180px;" oninput="bulkBillPreview()">
+                    </div>
+                    <div style="margin-top:12px;background:#e3f2fd;padding:12px;border-radius:8px;" id="bulkBillInfo">
                         <strong>Current Term:</strong> ${state.settings.term} ${state.settings.academicYear}<br>
                         <strong>Fee Components:</strong> ${state.feeComponents.length} items<br>
-                        <strong>Active Students:</strong> ${state.students.filter(s=>s.status==='Active').length}
+                        <strong>Students to Bill:</strong> <span id="bulkCount">—</span>
                     </div>
                 </div>
             </div>
@@ -5457,12 +5464,28 @@
             toast('Receipt downloaded!', 'success');
         }
 
+        function bulkBillPreview() {
+            const cls = val('bulkClass');
+            const limit = parseInt(val('bulkLimit'), 10) || 0;
+            let pool = state.students.filter(s => s.status === 'Active');
+            if (cls) pool = pool.filter(s => s.class === cls);
+            if (limit > 0) pool = pool.slice(0, limit);
+            const el = $('bulkCount');
+            if (el) el.textContent = `${pool.length} student(s)${cls ? ` in ${cls}` : ''}${limit > 0 ? ` (first ${pool.length} in roll order)` : ''}`;
+            return pool;
+        }
+
         function bulkBillFees() {
             const term = state.settings.term;
             const year = state.settings.academicYear;
-            const activeStudents = state.students.filter(s => s.status === 'Active');
+            const pool = bulkBillPreview();
+            if (!pool.length) { toast('No students match the selected scope', 'error'); return; }
+            const cls = val('bulkClass');
+            const limit = parseInt(val('bulkLimit'), 10) || 0;
+            const scopeLabel = (cls ? `class ${cls}` : 'all classes') + (limit > 0 ? ` (first ${pool.length} in roll order)` : '');
+            if (!confirm(`Generate ${term} ${year} bills for ${pool.length} student(s) in ${scopeLabel}?`)) return;
             let count = 0;
-            activeStudents.forEach(s => {
+            pool.forEach(s => {
                 const existing = state.fees.find(f => f.studentId === s.id && f.term === term && f.year === year);
                 if (!existing) {
                     const payments = {};
@@ -5486,7 +5509,7 @@
             });
             saveState();
             feesPage();
-            toast(`${count} fee records created for ${term} ${year}`, 'success');
+            toast(`${count} fee records created for ${term} ${year} (${scopeLabel})`, 'success');
         }
 
         function buildWAMessage(type, fee) {
@@ -5998,13 +6021,17 @@
                     <span class="card-title">🏦 Bank Reconciliation Statement — ${state.settings.academicYear}</span>
                     <div class="btn-group">
                         <button class="btn btn-primary" onclick="openAddBankTransaction()">➕ Transaction</button>
+                        <button class="btn btn-outline" onclick="editOpeningBalance()">📥 Set Brought Forward</button>
                         <button class="btn btn-outline" onclick="exportBankReconPDF()">📄 PDF</button>
                     </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
                     <div class="recon-section" style="background:#e3f2fd;padding:12px;border-radius:8px;">
                         <div class="recon-title" style="font-weight:600;color:var(--primary);">📚 Balance as per Cash Book</div>
-                        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px;"><span>Cash Book Balance</span><span style="font-weight:700;">${fmt(bankBalance)}</span></div>
+                        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px;"><span>Balance Brought Forward (Opening)</span><span style="font-weight:700;">${fmt(state.openingBalance)}</span></div>
+                        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span>Add: Receipts (Credits)</span><span style="color:var(--success)">+ ${fmt(credits)}</span></div>
+                        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span>Less: Payments (Debits)</span><span style="color:var(--danger)">- ${fmt(debits)}</span></div>
+                        <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700;font-size:15px;border-top:2px solid var(--primary);margin-top:4px;"><span>Cash Book Balance</span><span style="font-weight:700;">${fmt(bankBalance)}</span></div>
                         <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-top:1px solid #90caf9;margin-top:4px;padding-top:6px;"><span>Add: Uncleared Credits</span><span style="color:var(--success)">+ ${fmt(unclearedCredits)}</span></div>
                         <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span>Less: Uncleared Debits</span><span style="color:var(--danger)">- ${fmt(unclearedDebits)}</span></div>
                         <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700;font-size:15px;border-top:2px solid var(--primary);margin-top:4px;"><span>Adjusted Cash Book Balance</span><span style="color:var(--primary)">${fmt(bankBalance + unclearedCredits - unclearedDebits)}</span></div>
@@ -6031,6 +6058,26 @@
                     </tbody>
                 </table></div>
             </div>`;
+        }
+
+        function editOpeningBalance() {
+            openModal('📥 Balance Brought Forward',
+                `<p style="color:var(--text-light);font-size:13px;margin-bottom:12px;">Set the opening bank balance carried forward when the system was first used. This feeds the Bank Reconciliation and cash book balance.</p>
+                <div class="form-group"><label>Opening Balance (Balance Brought Forward)</label><input type="number" id="obInput" value="${state.openingBalance || 0}" min="0" step="0.01" style="width:100%;"></div>`,
+                [
+                    { label: 'Save', cls: 'btn-primary', action: 'saveOpeningBalance()' },
+                    { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' }
+                ]);
+        }
+
+        function saveOpeningBalance() {
+            const v = parseFloat($('obInput').value);
+            if (isNaN(v) || v < 0) { toast('Enter a valid amount', 'error'); return; }
+            state.openingBalance = v;
+            saveState();
+            closeModal();
+            accountsPage();
+            toast('Opening balance saved', 'success');
         }
 
         function toggleCleared(id, cleared) {
