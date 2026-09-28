@@ -58,6 +58,10 @@
     { table: 'attendance_register_inspections', key: 'attendanceRegisterInspections' },
     { table: 'subject_configs', key: 'subjectConfigs', obj: true },
     { table: 'overall_remarks', key: 'overallRemarks', obj: true },
+    { table: 'inventory', key: 'inventory' },
+    { table: 'inventory_issues', key: 'inventoryIssues' },
+    { table: 'textbooks', key: 'textbooks' },
+    { table: 'textbook_issues', key: 'textbookIssues' },
   ];
 
   function errorMsg(e, fallback) {

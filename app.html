@@ -1868,6 +1868,10 @@
                 if (!state.bankDeposits) state.bankDeposits = [];
                 if (!state.subjectConfigs) state.subjectConfigs = {};
                 if (!state.overallRemarks) state.overallRemarks = {};
+                if (!state.inventory) state.inventory = [];
+                if (!state.inventoryIssues) state.inventoryIssues = [];
+                if (!state.textbooks) state.textbooks = [];
+                if (!state.textbookIssues) state.textbookIssues = [];
                 if (state.settings && state.settings.nextTermFees === undefined) state.settings.nextTermFees = 850;
                 if (state.settings && !state.settings.nextTerm) state.settings.nextTerm = 'Term 2';
                 if (state.settings && !state.settings.nextTermOpens) state.settings.nextTermOpens = '';
@@ -2210,6 +2214,7 @@
                     roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher', 'accountant', 'parent'] },
                     { id: 'committees', icon: '👥', label: 'Committees', roles: ['admin', 'head', 'deputy_head'] },
                     { id: 'assets', icon: '🛋️', label: 'Assets', roles: ['admin', 'head', 'accountant'] },
+                    { id: 'inventory', icon: '📦', label: 'Inventory', roles: ['admin', 'head', 'accountant'] },
                     { id: 'documents', icon: '📁', label: 'Documents', roles: ['admin', 'head', 'deputy_head', 'senior_teacher', 'teacher',
                             'accountant'
                         ] },
@@ -2271,6 +2276,7 @@
                 accounts: 'Accounting Reports',
                 committees: 'Committees & Boards',
                 assets: 'Assets',
+                inventory: 'Inventory',
                 documents: 'Documents',
                 noticeboard: 'Noticeboard',
                 settings: 'Settings (Admin)',
@@ -2305,6 +2311,7 @@
                 accounts: accountsPage,
                 committees: committeesPage,
                 assets: assetsPage,
+                inventory: inventoryPage,
                 documents: documentsPage,
                 noticeboard: noticeboardPage,
                 settings: settingsPage,
@@ -6719,16 +6726,308 @@
         // ============================================================
         //  ASSETS (with asset number and department)
         // ============================================================
+        // ============================================================
+        //  INVENTORY (stock acquired by accountant; issued to staff)
+        // ============================================================
+        function inventoryPage() {
+            $('pageContent').innerHTML = `
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('tab-inv-items','tabs-inv',this)">📦 Stock Items</div>
+                <div class="tab" onclick="switchTab('tab-inv-log','tabs-inv',this)">📤 Issue Log</div>
+            </div>
+            <div id="tab-inv-items" class="tab-content active">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">📦 Inventory Stock</span>
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="openAcquireStock()">➕ Acquire Stock</button>
+                            <button class="btn btn-outline" onclick="exportInventoryCSV()">📊 CSV</button>
+                        </div>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Record items acquired (pens, covers, chalk, etc.) — usually entered by the accountant. Issue them to staff from <strong>Stock Items</strong>; every issue is logged under the Issue Log tab.</p>
+                    <div id="invSummary"></div>
+                    <div class="table-wrap" id="invItemsWrap"></div>
+                </div>
+            </div>
+            <div id="tab-inv-log" class="tab-content">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">📤 Issue Log</span>
+                        <div class="btn-group">
+                            <button class="btn btn-outline" onclick="exportIssueLogCSV()">📊 CSV</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap" id="invIssuesWrap"></div>
+                </div>
+            </div>`;
+            renderInventory();
+        }
+
+        function renderInventory() {
+            renderInventorySummary();
+            renderInventoryItems();
+            renderInventoryIssues();
+        }
+
+        function renderInventorySummary() {
+            const el = $('invSummary');
+            if (!el) return;
+            const items = state.inventory || [];
+            const totalQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+            const totalValue = items.reduce((s, i) => s + ((Number(i.qty) || 0) * (Number(i.unitCost) || 0)), 0);
+            el.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
+                <div style="background:#e3f2fd;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">STOCK ITEMS</div><div style="font-weight:700;font-size:18px;">${items.length}</div></div>
+                <div style="background:#e8f5e9;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">UNITS IN STOCK</div><div style="font-weight:700;font-size:18px;">${totalQty}</div></div>
+                <div style="background:#fff8e1;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">STOCK VALUE</div><div style="font-weight:700;font-size:18px;">${fmt(totalValue)}</div></div>
+            </div>`;
+        }
+
+        function renderInventoryItems() {
+            const wrap = $('invItemsWrap');
+            if (!wrap) return;
+            const items = state.inventory || [];
+            wrap.innerHTML = items.length ? `<table>
+                <thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Unit Cost</th><th>In Stock</th><th>Total Acquired</th><th>Stock Value</th><th>Last In</th><th>Actions</th></tr></thead>
+                <tbody>
+                ${items.map(it => `<tr>
+                    <td><strong>${esc(it.name)}</strong>${it.notes ? `<br><span style="font-size:11px;color:var(--text-light);">${esc(it.notes)}</span>` : ''}</td>
+                    <td>${esc(it.category || '')}</td>
+                    <td>${esc(it.unit || 'pc')}</td>
+                    <td>${fmt(it.unitCost || 0)}</td>
+                    <td><strong>${it.qty ?? 0}</strong> ${esc(it.unit || 'pc')}</td>
+                    <td>${it.totalReceived ?? (it.qty ?? 0)}</td>
+                    <td>${fmt((Number(it.qty) || 0) * (Number(it.unitCost) || 0))}</td>
+                    <td>${it.lastIn ? it.lastIn : (it.date || '—')}</td>
+                    <td><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">
+                        <button class="btn btn-sm btn-primary" onclick="issueInventory('${it.id}')">📤 Issue</button>
+                        <button class="btn btn-sm btn-outline" onclick="openStockIn('${it.id}')">➕ Stock In</button>
+                        <button class="btn btn-sm btn-outline" onclick="editInventoryItem('${it.id}')">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteInventoryItem('${it.id}')">🗑️</button>
+                    </div></td>
+                </tr>`).join('')}
+                </tbody>
+            </table>` : '<div class="empty-state"><div class="icon">📦</div><h3>No stock yet</h3><p>Acquire your first items (pens, chalk, covers...).</p></div>';
+        }
+
+        function renderInventoryIssues() {
+            const wrap = $('invIssuesWrap');
+            if (!wrap) return;
+            const issues = [...(state.inventoryIssues || [])].sort((a, b) => new Date(b.issueDate || 0) - new Date(a.issueDate || 0));
+            wrap.innerHTML = issues.length ? `<table>
+                <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Issued To</th><th>Role</th><th>Purpose</th><th>Recorded By</th><th>Actions</th></tr></thead>
+                <tbody>
+                ${issues.map(iss => `<tr>
+                    <td>${iss.issueDate || '—'}</td>
+                    <td><strong>${esc(iss.itemName)}</strong></td>
+                    <td>${iss.qty} ${esc(iss.unit || '')}</td>
+                    <td>${esc(iss.issuedTo)}</td>
+                    <td>${esc(iss.role || 'Staff')}</td>
+                    <td style="font-size:12px;">${esc(iss.purpose || '')}</td>
+                    <td>${esc(iss.issuedBy || '')}</td>
+                    <td><button class="btn btn-sm btn-danger" onclick="deleteInventoryIssue('${iss.id}')">🗑️</button></td>
+                </tr>`).join('')}
+                </tbody>
+            </table>` : '<div class="empty-state"><div class="icon">📤</div><h3>No issues yet</h3><p>Issue stock to staff from the Stock Items tab.</p></div>';
+        }
+
+        function invStaffNames() {
+            const names = new Set();
+            (state.staff || []).forEach(s => { if (s && s.name) names.add(s.name); });
+            (state.teachers || []).forEach(t => { if (t && t.name) names.add(t.name); });
+            return [...names];
+        }
+
+        function invFormHTML(it = {}) {
+            return `<div class="form-grid">
+                <div class="form-group"><label>Item Name*</label><input id="invName" value="${esc(it.name || '')}" placeholder="e.g., Blue Pens"></div>
+                <div class="form-group"><label>Category</label><select id="invCategory">
+                    ${['Stationery', 'Teaching Aids', 'Chalk / Cleaning', 'Classroom Consumables', 'Sports', 'Other'].map(c => `<option ${it.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+                </select></div>
+                <div class="form-group"><label>Unit</label><input id="invUnit" value="${esc(it.unit || 'pc')}" placeholder="pc / box / ream"></div>
+                <div class="form-group"><label>Unit Cost ($)</label><input type="number" id="invUnitCost" value="${it.unitCost || ''}" min="0" step="0.01"></div>
+                <div class="form-group"><label>Supplier</label><input id="invSupplier" value="${esc(it.supplier || '')}"></div>
+                <div class="form-group"><label>Date</label><input type="date" id="invDate" value="${it.date || new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-group" style="grid-column:1/-1;"><label>Notes</label><input id="invNotes" value="${esc(it.notes || '')}"></div>
+            </div>`;
+        }
+
+        function openAcquireStock() {
+            openModal('Acquire Stock (New Item)', invFormHTML(), [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save Item', cls: 'btn-primary', action: 'saveInventoryItem()' }
+            ]);
+        }
+
+        function saveInventoryItem() {
+            const name = val('invName').trim();
+            if (!name) { toast('Item name is required', 'error'); return; }
+            const date = val('invDate');
+            state.inventory.push({
+                id: 'inv' + Date.now(),
+                name,
+                category: val('invCategory'),
+                unit: val('invUnit').trim() || 'pc',
+                unitCost: parseFloat(val('invUnitCost')) || 0,
+                supplier: val('invSupplier').trim() || '',
+                date,
+                lastIn: date,
+                qty: 0,
+                totalReceived: 0,
+                notes: val('invNotes').trim() || ''
+            });
+            saveState();
+            closeModal();
+            inventoryPage();
+            toast('Stock item added. Now add the initial quantity via ➕ Stock In.', 'success');
+        }
+
+        function openStockIn(id) {
+            const it = state.inventory.find(x => x.id === id);
+            if (!it) return;
+            openModal('Stock In — ' + esc(it.name), `
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:10px;">Current stock: <strong>${it.qty ?? 0} ${esc(it.unit || 'pc')}</strong></p>
+                <div class="form-group"><label>Quantity Received*</label><input type="number" id="siQty" min="1" step="1" placeholder="0"></div>
+                <div class="form-group"><label>Date Received</label><input type="date" id="siDate" value="${new Date().toISOString().split('T')[0]}"></div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Add Stock', cls: 'btn-primary', action: `saveStockIn('${id}')` }
+            ]);
+        }
+
+        function saveStockIn(id) {
+            const it = state.inventory.find(x => x.id === id);
+            if (!it) return;
+            const qty = parseInt(val('siQty'), 10);
+            if (!qty || qty < 1) { toast('Enter a valid quantity', 'error'); return; }
+            it.qty = (Number(it.qty) || 0) + qty;
+            it.totalReceived = (Number(it.totalReceived) || 0) + qty;
+            it.lastIn = val('siDate');
+            saveState();
+            closeModal();
+            renderInventory();
+            toast(`${qty} ${it.unit || 'pc'} added to stock`, 'success');
+        }
+
+        function editInventoryItem(id) {
+            const it = state.inventory.find(x => x.id === id);
+            if (!it) return;
+            openModal('Edit Stock Item', invFormHTML(it), [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Update', cls: 'btn-primary', action: `updateInventoryItem('${id}')` }
+            ]);
+        }
+
+        function updateInventoryItem(id) {
+            const it = state.inventory.find(x => x.id === id);
+            if (!it) return;
+            it.name = val('invName').trim() || it.name;
+            it.category = val('invCategory');
+            it.unit = val('invUnit').trim() || 'pc';
+            it.unitCost = parseFloat(val('invUnitCost')) || 0;
+            it.supplier = val('invSupplier').trim() || it.supplier;
+            it.date = val('invDate') || it.date;
+            it.notes = val('invNotes').trim() || it.notes;
+            saveState();
+            closeModal();
+            renderInventory();
+            toast('Stock item updated', 'success');
+        }
+
+        function issueInventory(id) {
+            const it = state.inventory.find(x => x.id === id);
+            if (!it) return;
+            if ((Number(it.qty) || 0) < 1) { toast('No stock available to issue', 'error'); return; }
+            const names = invStaffNames().map(n => `<option value="${esc(n)}">`).join('');
+            openModal('Issue Stock — ' + esc(it.name), `
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:10px;">Available: <strong>${it.qty ?? 0} ${esc(it.unit || 'pc')}</strong></p>
+                <div class="form-grid">
+                    <div class="form-group"><label>Issued To (Staff)*</label>
+                        <input id="invTo" list="invToNames" placeholder="Type or pick a staff member">
+                        <datalist id="invToNames">${names}</datalist>
+                    </div>
+                    <div class="form-group"><label>Role / Title</label><input id="invIssRole" value="Staff" placeholder="e.g., Teacher, Janitor"></div>
+                    <div class="form-group"><label>Quantity*</label><input type="number" id="invIssQty" min="1" step="1" max="${it.qty ?? 0}" placeholder="0"></div>
+                    <div class="form-group"><label>Date Issued</label><input type="date" id="invIssDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                    <div class="form-group" style="grid-column:1/-1;"><label>Purpose / Notes</label><input id="invIssPurpose" placeholder="e.g., End of term exam writing"></div>
+                </div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Issue Stock', cls: 'btn-primary', action: `saveInventoryIssue('${id}')` }
+            ]);
+        }
+
+        function saveInventoryIssue(id) {
+            const it = state.inventory.find(x => x.id === id);
+            if (!it) return;
+            const qty = parseInt(val('invIssQty'), 10);
+            const issuedTo = val('invTo').trim();
+            if (!qty || qty < 1) { toast('Enter quantity', 'error'); return; }
+            if (!issuedTo) { toast('Enter who it is issued to', 'error'); return; }
+            if (qty > (Number(it.qty) || 0)) { toast('Not enough stock available', 'error'); return; }
+            it.qty = (Number(it.qty) || 0) - qty;
+            state.inventoryIssues.push({
+                id: 'invIss' + Date.now(),
+                itemId: id,
+                itemName: it.name,
+                unit: it.unit || 'pc',
+                qty,
+                issuedTo,
+                role: val('invIssRole').trim() || 'Staff',
+                purpose: val('invIssPurpose').trim() || '',
+                issueDate: val('invIssDate'),
+                issuedBy: currentUser.name
+            });
+            saveState();
+            closeModal();
+            renderInventory();
+            toast(`${qty} ${it.unit || 'pc'} issued to ${issuedTo}`, 'success');
+        }
+
+        function deleteInventoryIssue(id) {
+            if (!confirm('Delete this issue? Stock quantity will be restored.')) return;
+            const iss = state.inventoryIssues.find(x => x.id === id);
+            if (iss) {
+                const it = state.inventory.find(x => x.id === iss.itemId);
+                if (it) it.qty = (Number(it.qty) || 0) + (Number(iss.qty) || 0);
+            }
+            state.inventoryIssues = state.inventoryIssues.filter(x => x.id !== id);
+            saveState();
+            renderInventory();
+            toast('Issue deleted, stock restored', 'success');
+        }
+
+        function deleteInventoryItem(id) {
+            if (!confirm('Delete this stock item? Its issue history will also be removed.')) return;
+            state.inventory = state.inventory.filter(x => x.id !== id);
+            state.inventoryIssues = state.inventoryIssues.filter(x => x.itemId !== id);
+            saveState();
+            renderInventory();
+        }
+
+        function exportInventoryCSV() {
+            downloadCSV('Inventory', ['Item', 'Category', 'Unit', 'Unit Cost', 'In Stock', 'Total Acquired', 'Supplier', 'Last In'],
+                (state.inventory || []).map(it => [it.name, it.category || '', it.unit || 'pc', it.unitCost || 0, it.qty ?? 0, it.totalReceived ?? 0, it.supplier || '', it.lastIn || it.date || ''])
+            );
+        }
+
+        function exportIssueLogCSV() {
+            downloadCSV('Inventory Issues', ['Date', 'Item', 'Qty', 'Issued To', 'Role', 'Purpose', 'Recorded By'],
+                (state.inventoryIssues || []).map(i => [i.issueDate || '', i.itemName, i.qty, i.issuedTo, i.role || 'Staff', i.purpose || '', i.issuedBy || ''])
+            );
+        }
+
         function assetsPage() {
             const totalValue = state.assets.reduce((s, a) => s + a.value, 0);
             $('pageContent').innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">🛋️ Assets (Total Value: ${fmt(totalValue)})</span>
-                    <button class="btn btn-primary" onclick="openAddAsset()">➕ Add Asset</button>
-                </div>
-                <div class="asset-grid" id="assetGrid">
-                    ${state.assets.map(a => `
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('tab-assets','tabs-assets',this)">🛋️ Assets</div>
+                <div class="tab" onclick="switchTab('tab-textbooks','tabs-assets',this)">📚 Textbooks</div>
+            </div>
+            <div id="tab-assets" class="tab-content active">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">🛋️ Assets (Total Value: ${fmt(totalValue)})</span>
+                        <button class="btn btn-primary" onclick="openAddAsset()">➕ Add Asset</button>
+                    </div>
+                    <div class="asset-grid" id="assetGrid">
+                        ${state.assets.map(a => `
                         <div class="asset-card">
                             <h4>${a.name}</h4>
                             <p><strong>Asset No:</strong> ${a.assetNumber}</p>
@@ -6743,9 +7042,321 @@
                                 <button class="btn btn-sm btn-danger" onclick="deleteAsset('${a.id}')">🗑️</button>
                             </div>
                         </div>
-                    `).join('') || '<div class="empty-state"><div class="icon">🛋️</div><h3>No assets</h3><p>Add your first asset.</p></div>'}
+                        `).join('') || '<div class="empty-state"><div class="icon">🛋️</div><h3>No assets</h3><p>Add your first asset.</p></div>'}
+                    </div>
                 </div>
+            </div>
+            <div id="tab-textbooks" class="tab-content">
+                ${renderTextbooksTab()}
             </div>`;
+            renderTextbooksList();
+            renderTextbookIssues();
+        }
+
+        // ---------- Textbooks (acquired, issued to learners, returned) ----------
+        function renderTextbooksTab() {
+            const books = state.textbooks || [];
+            const issues = state.textbookIssues || [];
+            const inStock = books.reduce((s, b) => s + (Number(b.copies) || 0), 0);
+            const issuedOut = books.reduce((s, b) => s + (Number(b.issued) || 0), 0);
+            const notReturned = issues.filter(i => !i.returnDate).length;
+            return `
+            <div class="card">
+                <div class="card-header"><span class="card-title">📚 Textbooks — Copies in Stock: ${inStock} · Issued Out: ${issuedOut}</span>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="openAddTextbook()">➕ Acquire Textbooks</button>
+                        <button class="btn btn-outline" onclick="exportTextbooksCSV()">📊 CSV</button>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Record textbook copies when acquired, then issue them to learners. Every issue is tracked until the copy is returned (usually end of term/year).</p>
+                <div class="filter-bar">
+                    <select id="tbSubject" onchange="renderTextbooksList()">
+                        <option value="">All Subjects</option>
+                        ${state.subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                    <select id="tbGrade" onchange="renderTextbooksList()">
+                        <option value="">All Grades / Classes</option>
+                        ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="table-wrap" id="tbBooksWrap"></div>
+            </div>
+            <div class="card" style="margin-top:14px;">
+                <div class="card-header"><span class="card-title">📖 Issued Textbooks (${notReturned} not yet returned)</span>
+                    <div class="btn-group">
+                        <button class="btn btn-outline" onclick="exportTextbookIssuesCSV()">📊 CSV</button>
+                    </div>
+                </div>
+                <div class="table-wrap" id="tbIssuesWrap"></div>
+            </div>`;
+        }
+
+        function refreshTextbooks() {
+            const t = $('tab-textbooks');
+            if (!t) return;
+            t.innerHTML = renderTextbooksTab();
+            renderTextbooksList();
+            renderTextbookIssues();
+        }
+
+        function renderTextbooksList() {
+            const wrap = $('tbBooksWrap');
+            if (!wrap) return;
+            const subj = val('tbSubject');
+            const grade = val('tbGrade');
+            let books = state.textbooks || [];
+            if (subj) books = books.filter(b => b.subject === subj);
+            if (grade) books = books.filter(b => b.grade === grade);
+            wrap.innerHTML = books.length ? `<table>
+                <thead><tr><th>Title</th><th>Author</th><th>Subject</th><th>Grade</th><th>Total Copies</th><th>Issued Out</th><th>Available</th><th>Actions</th></tr></thead>
+                <tbody>
+                ${books.map(b => `<tr>
+                    <td><strong>${esc(b.title)}</strong>${b.isbn ? `<br><span style="font-size:11px;color:var(--text-light);">${esc(b.isbn)}</span>` : ''}</td>
+                    <td>${esc(b.author || '')}</td>
+                    <td>${esc(b.subject || '')}</td>
+                    <td>${esc(b.grade || '')}</td>
+                    <td>${(Number(b.copies) || 0) + (Number(b.issued) || 0)}</td>
+                    <td>${Number(b.issued) || 0}</td>
+                    <td><strong>${Number(b.copies) || 0}</strong></td>
+                    <td><div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">
+                        <button class="btn btn-sm btn-primary" onclick="issueTextbook('${b.id}')">📖 Issue</button>
+                        <button class="btn btn-sm btn-outline" onclick="addTextbookCopies('${b.id}')">➕ More</button>
+                        <button class="btn btn-sm btn-outline" onclick="editTextbook('${b.id}')">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteTextbook('${b.id}')">🗑️</button>
+                    </div></td>
+                </tr>`).join('')}
+                </tbody>
+            </table>` : '<div class="empty-state"><div class="icon">📚</div><h3>No textbooks</h3><p>Acquire textbooks to start issuing to learners.</p></div>';
+        }
+
+        function renderTextbookIssues() {
+            const wrap = $('tbIssuesWrap');
+            if (!wrap) return;
+            const issues = [...(state.textbookIssues || [])].sort((a, b) => new Date(b.issueDate || 0) - new Date(a.issueDate || 0));
+            const today = new Date().toISOString().split('T')[0];
+            wrap.innerHTML = issues.length ? `<table>
+                <thead><tr><th>Book</th><th>Learner</th><th>Class</th><th>Issued</th><th>Due</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                ${issues.map(i => {
+                    const returned = !!i.returnDate;
+                    const overdue = !returned && i.dueDate && i.dueDate < today;
+                    return `<tr>
+                        <td>${esc(i.bookTitle)}</td>
+                        <td>${esc(i.studentName)}</td>
+                        <td>${esc(i.cls || '')}</td>
+                        <td>${i.issueDate || ''}</td>
+                        <td>${i.dueDate || ''}</td>
+                        <td>${returned ? `<span class="badge-status badge-success">Returned ${i.returnDate}</span>` : (overdue ? '<span class="badge-status badge-danger">Overdue</span>' : '<span class="badge-status badge-warning">Issued</span>')}</td>
+                        <td><div style="display:flex;gap:5px;justify-content:center;">
+                            ${returned ? '' : `<button class="btn btn-sm btn-success" onclick="returnTextbook('${i.id}')">🔄 Return</button>`}
+                            <button class="btn btn-sm btn-danger" onclick="deleteTextbookIssue('${i.id}')">🗑️</button>
+                        </div></td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table>` : '<div class="empty-state"><div class="icon">📖</div><h3>No textbooks issued</h3><p>Issue copies to learners from the textbook list above.</p></div>';
+        }
+
+        function defaultDueDate() {
+            const d = new Date();
+            d.setMonth(d.getMonth() + 3);
+            return d.toISOString().split('T')[0];
+        }
+
+        function textbookFormHTML(b = {}) {
+            return `<div class="form-grid">
+                <div class="form-group"><label>Title*</label><input id="tbTitle" value="${esc(b.title || '')}"></div>
+                <div class="form-group"><label>Author</label><input id="tbAuthor" value="${esc(b.author || '')}"></div>
+                <div class="form-group"><label>Publisher</label><input id="tbPublisher" value="${esc(b.publisher || '')}"></div>
+                <div class="form-group"><label>ISBN</label><input id="tbIsbn" value="${esc(b.isbn || '')}"></div>
+                <div class="form-group"><label>Subject</label><select id="tbSubjectSel">${state.subjects.map(s => `<option ${b.subject === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+                <div class="form-group"><label>Grade / Class</label><select id="tbGradeSel">${state.classes.map(c => `<option ${b.grade === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+                <div class="form-group"><label>Copies Acquired*</label><input type="number" id="tbCopies" value="${b.copies || 1}" min="1"></div>
+                <div class="form-group"><label>Date Acquired</label><input type="date" id="tbDate" value="${b.dateAcquired || new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-group" style="grid-column:1/-1;"><label>Notes</label><input id="tbNotes" value="${esc(b.notes || '')}"></div>
+            </div>`;
+        }
+
+        function openAddTextbook() {
+            openModal('Acquire Textbooks', textbookFormHTML(), [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save', cls: 'btn-primary', action: 'saveTextbook()' }
+            ]);
+        }
+
+        function saveTextbook() {
+            const title = val('tbTitle').trim();
+            const copies = parseInt(val('tbCopies'), 10);
+            if (!title) { toast('Title is required', 'error'); return; }
+            if (!copies || copies < 1) { toast('Enter copies acquired', 'error'); return; }
+            state.textbooks.push({
+                id: 'tb' + Date.now(),
+                title,
+                author: val('tbAuthor').trim(),
+                publisher: val('tbPublisher').trim(),
+                isbn: val('tbIsbn').trim(),
+                subject: val('tbSubjectSel'),
+                grade: val('tbGradeSel'),
+                copies,
+                issued: 0,
+                dateAcquired: val('tbDate'),
+                notes: val('tbNotes').trim() || ''
+            });
+            saveState();
+            closeModal();
+            refreshTextbooks();
+            toast('Textbooks recorded', 'success');
+        }
+
+        function editTextbook(id) {
+            const b = state.textbooks.find(x => x.id === id);
+            if (!b) return;
+            openModal('Edit Textbook', textbookFormHTML(b), [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Update', cls: 'btn-primary', action: `updateTextbook('${id}')` }
+            ]);
+        }
+
+        function updateTextbook(id) {
+            const b = state.textbooks.find(x => x.id === id);
+            if (!b) return;
+            const copies = parseInt(val('tbCopies'), 10);
+            if (!copies || copies < 1) { toast('Enter copies in stock', 'error'); return; }
+            Object.assign(b, {
+                title: val('tbTitle').trim(),
+                author: val('tbAuthor').trim(),
+                publisher: val('tbPublisher').trim(),
+                isbn: val('tbIsbn').trim(),
+                subject: val('tbSubjectSel'),
+                grade: val('tbGradeSel'),
+                copies,
+                dateAcquired: val('tbDate'),
+                notes: val('tbNotes').trim() || ''
+            });
+            saveState();
+            closeModal();
+            refreshTextbooks();
+            toast('Textbook updated', 'success');
+        }
+
+        function addTextbookCopies(id) {
+            const b = state.textbooks.find(x => x.id === id);
+            if (!b) return;
+            openModal('More Copies — ' + esc(b.title), `
+                <div class="form-group"><label>Additional Copies*</label><input type="number" id="tbmQty" min="1" placeholder="0"></div>
+                <div class="form-group"><label>Date Received</label><input type="date" id="tbmDate" value="${new Date().toISOString().split('T')[0]}"></div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Add Copies', cls: 'btn-primary', action: `saveTextbookCopies('${id}')` }
+            ]);
+        }
+
+        function saveTextbookCopies(id) {
+            const b = state.textbooks.find(x => x.id === id);
+            if (!b) return;
+            const qty = parseInt(val('tbmQty'), 10);
+            if (!qty || qty < 1) { toast('Enter a valid number', 'error'); return; }
+            b.copies = (Number(b.copies) || 0) + qty;
+            b.dateAcquired = val('tbmDate') || b.dateAcquired;
+            saveState();
+            closeModal();
+            refreshTextbooks();
+            toast(`${qty} copies added to stock`, 'success');
+        }
+
+        function issueTextbook(id) {
+            const b = state.textbooks.find(x => x.id === id);
+            if (!b) return;
+            if ((Number(b.copies) || 0) < 1) { toast('No copies available to issue', 'error'); return; }
+            openModal('Issue Textbook — ' + esc(b.title), `
+                <div class="form-grid">
+                    <div class="form-group"><label>Class</label><select id="tbiClass" onchange="fillTBIStudents()"><option value="">Select Class</option>${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
+                    <div class="form-group"><label>Learner*</label><select id="tbiStudent"><option value="">Select a class first</option></select></div>
+                    <div class="form-group"><label>Issue Date</label><input type="date" id="tbiDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                    <div class="form-group"><label>Due / Return Date</label><input type="date" id="tbiDue" value="${defaultDueDate()}"></div>
+                </div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Issue Copy', cls: 'btn-primary', action: `saveTextbookIssue('${id}')` }
+            ]);
+        }
+
+        function fillTBIStudents() {
+            const cls = val('tbiClass');
+            const el = $('tbiStudent');
+            if (!el) return;
+            el.innerHTML = '<option value="">Select learner</option>' + state.students.filter(s => s.class === cls)
+                .map(s => `<option value="${s.id}">${esc(s.name)} (${s.admNo || ''})</option>`).join('');
+        }
+
+        function saveTextbookIssue(id) {
+            const b = state.textbooks.find(x => x.id === id);
+            if (!b) return;
+            const sid = val('tbiStudent');
+            if (!sid) { toast('Select a learner', 'error'); return; }
+            if ((Number(b.copies) || 0) < 1) { toast('No copies available', 'error'); return; }
+            const s = state.students.find(x => x.id === sid);
+            b.copies = (Number(b.copies) || 0) - 1;
+            b.issued = (Number(b.issued) || 0) + 1;
+            state.textbookIssues.push({
+                id: 'tbi' + Date.now(),
+                bookId: id,
+                bookTitle: b.title,
+                studentId: sid,
+                studentName: s.name,
+                cls: s.class,
+                issueDate: val('tbiDate'),
+                dueDate: val('tbiDue'),
+                returnDate: null,
+                issuedBy: currentUser.name
+            });
+            saveState();
+            closeModal();
+            refreshTextbooks();
+            toast(`Copy of "${b.title}" issued to ${s.name}`, 'success');
+        }
+
+        function returnTextbook(id) {
+            const iss = state.textbookIssues.find(x => x.id === id);
+            if (!iss) return;
+            if (!confirm(`Mark "${iss.bookTitle}" returned by ${iss.studentName}?`)) return;
+            iss.returnDate = new Date().toISOString().split('T')[0];
+            const b = state.textbooks.find(x => x.id === iss.bookId);
+            if (b) { b.issued = Math.max(0, (Number(b.issued) || 0) - 1); b.copies = (Number(b.copies) || 0) + 1; }
+            saveState();
+            refreshTextbooks();
+            toast('Copy returned', 'success');
+        }
+
+        function deleteTextbookIssue(id) {
+            if (!confirm('Delete this issue record?')) return;
+            const iss = state.textbookIssues.find(x => x.id === id);
+            if (iss && !iss.returnDate) {
+                const b = state.textbooks.find(x => x.id === iss.bookId);
+                if (b) { b.issued = Math.max(0, (Number(b.issued) || 0) - 1); b.copies = (Number(b.copies) || 0) + 1; }
+            }
+            state.textbookIssues = state.textbookIssues.filter(x => x.id !== id);
+            saveState();
+            refreshTextbooks();
+            toast('Issue deleted', 'success');
+        }
+
+        function deleteTextbook(id) {
+            if (!confirm('Delete this textbook and all its issue records?')) return;
+            state.textbooks = state.textbooks.filter(x => x.id !== id);
+            state.textbookIssues = state.textbookIssues.filter(x => x.bookId !== id);
+            saveState();
+            refreshTextbooks();
+        }
+
+        function exportTextbooksCSV() {
+            downloadCSV('Textbooks', ['Title', 'Author', 'Publisher', 'ISBN', 'Subject', 'Grade', 'Total Copies', 'Issued Out', 'Available', 'Date Acquired'],
+                (state.textbooks || []).map(b => [b.title, b.author || '', b.publisher || '', b.isbn || '', b.subject || '', b.grade || '', (Number(b.copies) || 0) + (Number(b.issued) || 0), Number(b.issued) || 0, Number(b.copies) || 0, b.dateAcquired || ''])
+            );
+        }
+
+        function exportTextbookIssuesCSV() {
+            downloadCSV('Textbook Issues', ['Book', 'Learner', 'Class', 'Issued', 'Due', 'Returned'],
+                (state.textbookIssues || []).map(i => [i.bookTitle, i.studentName, i.cls || '', i.issueDate || '', i.dueDate || '', i.returnDate || 'Not returned'])
+            );
         }
 
         function assetFormHTML(a = {}) {
