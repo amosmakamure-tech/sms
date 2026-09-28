@@ -6752,6 +6752,7 @@
                 <div class="card">
                     <div class="card-header"><span class="card-title">📤 Issue Log</span>
                         <div class="btn-group">
+                            <button class="btn btn-primary" onclick="openIssueStockByName()">📤 Issue Stock by Name</button>
                             <button class="btn btn-outline" onclick="exportIssueLogCSV()">📊 CSV</button>
                         </div>
                     </div>
@@ -6772,10 +6773,12 @@
             if (!el) return;
             const items = state.inventory || [];
             const totalQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+            const totalAcquired = items.reduce((s, i) => s + (Number(i.totalReceived) || 0), 0);
             const totalValue = items.reduce((s, i) => s + ((Number(i.qty) || 0) * (Number(i.unitCost) || 0)), 0);
             el.innerHTML = `
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
                 <div style="background:#e3f2fd;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">STOCK ITEMS</div><div style="font-weight:700;font-size:18px;">${items.length}</div></div>
+                <div style="background:#f3e5f5;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">UNITS ACQUIRED</div><div style="font-weight:700;font-size:18px;">${totalAcquired}</div></div>
                 <div style="background:#e8f5e9;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">UNITS IN STOCK</div><div style="font-weight:700;font-size:18px;">${totalQty}</div></div>
                 <div style="background:#fff8e1;padding:10px;border-radius:8px;text-align:center;"><div style="font-size:11px;color:var(--text-light);">STOCK VALUE</div><div style="font-weight:700;font-size:18px;">${fmt(totalValue)}</div></div>
             </div>`;
@@ -6786,7 +6789,7 @@
             if (!wrap) return;
             const items = state.inventory || [];
             wrap.innerHTML = items.length ? `<table>
-                <thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Unit Cost</th><th>In Stock</th><th>Total Acquired</th><th>Stock Value</th><th>Last In</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Unit Cost</th><th>In Stock</th><th>Units Acquired</th><th>Stock Value</th><th>Last In</th><th>Actions</th></tr></thead>
                 <tbody>
                 ${items.map(it => `<tr>
                     <td><strong>${esc(it.name)}</strong>${it.notes ? `<br><span style="font-size:11px;color:var(--text-light);">${esc(it.notes)}</span>` : ''}</td>
@@ -6826,7 +6829,72 @@
                     <td><button class="btn btn-sm btn-danger" onclick="deleteInventoryIssue('${iss.id}')">🗑️</button></td>
                 </tr>`).join('')}
                 </tbody>
-            </table>` : '<div class="empty-state"><div class="icon">📤</div><h3>No issues yet</h3><p>Issue stock to staff from the Stock Items tab.</p></div>';
+            </table>` : '<div class="empty-state"><div class="icon">📤</div><h3>No issues yet</h3><p>Use <strong>📤 Issue Stock by Name</strong> above, or issue from the Stock Items tab. You can type a brand-new item name and it will be created as you issue.</p></div>';
+        }
+
+        function openIssueStockByName() {
+            const names = (state.inventory || []).map(i => `<option value="${esc(i.name)}">`).join('');
+            const staff = invStaffNames().map(n => `<option value="${esc(n)}">`).join('');
+            openModal('Issue Stock by Name', `
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:10px;">Pick an existing item by name, or type a new item name — it will be created as a stock item while you issue.</p>
+                <div class="form-grid">
+                    <div class="form-group" style="grid-column:1/-1;"><label>Item Name*</label>
+                        <input id="issName" list="issNameList" placeholder="Type or pick an item name">
+                        <datalist id="issNameList">${names}</datalist>
+                    </div>
+                    <div class="form-group"><label>Category (new items)</label><select id="issCategory">
+                        ${['Stationery', 'Teaching Aids', 'Chalk / Cleaning', 'Classroom Consumables', 'Sports', 'Other'].map(c => `<option ${c === 'Other' ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select></div>
+                    <div class="form-group"><label>Unit (new items)</label><input id="issUnit" value="pc" placeholder="pc / box / ream"></div>
+                    <div class="form-group"><label>Issued To (Staff)*</label>
+                        <input id="issTo" list="issToNames" placeholder="Type or pick a staff member">
+                        <datalist id="issToNames">${staff}</datalist>
+                    </div>
+                    <div class="form-group"><label>Role / Title</label><input id="issRole" value="Staff" placeholder="e.g., Teacher, Janitor"></div>
+                    <div class="form-group"><label>Quantity*</label><input type="number" id="issQty" min="1" step="1" placeholder="0"></div>
+                    <div class="form-group"><label>Date Issued</label><input type="date" id="issDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                    <div class="form-group" style="grid-column:1/-1;"><label>Purpose / Notes</label><input id="issPurpose" placeholder="e.g., End of term exam writing"></div>
+                </div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Issue Stock', cls: 'btn-primary', action: 'saveIssueStockByName()' }
+            ]);
+        }
+
+        function saveIssueStockByName() {
+            const name = val('issName').trim();
+            const qty = parseInt(val('issQty'), 10);
+            const issuedTo = val('issTo').trim();
+            if (!name) { toast('Item name is required', 'error'); return; }
+            if (!issuedTo) { toast('Enter who it is issued to', 'error'); return; }
+            if (!qty || qty < 1) { toast('Enter a valid quantity', 'error'); return; }
+            let it = state.inventory.find(i => i.name.trim().toLowerCase() === name.toLowerCase());
+            let isNew = false;
+            if (!it) {
+                it = { id: 'inv' + Date.now(), name, category: val('issCategory'), unit: val('issUnit').trim() || 'pc',
+                    unitCost: 0, supplier: '', date: val('issDate'), lastIn: '', qty: 0, totalReceived: 0,
+                    notes: 'Created while issuing stock' };
+                state.inventory.push(it);
+                isNew = true;
+            }
+            it.qty = (Number(it.qty) || 0) - qty;
+            state.inventoryIssues.push({
+                id: 'invIss' + Date.now(),
+                itemId: it.id,
+                itemName: it.name,
+                unit: it.unit || 'pc',
+                qty,
+                issuedTo,
+                role: val('issRole').trim() || 'Staff',
+                purpose: val('issPurpose').trim() || '',
+                issueDate: val('issDate'),
+                issuedBy: currentUser.name
+            });
+            saveState();
+            closeModal();
+            renderInventory();
+            if (isNew) toast(`New item "${it.name}" created and ${qty} ${it.unit || 'pc'} issued`, 'success');
+            else if ((Number(it.qty) || 0) < 0) toast(`${qty} ${it.unit || 'pc'} issued to ${issuedTo} — stock now ${it.qty} (below 0)`, 'warning');
+            else toast(`${qty} ${it.unit || 'pc'} issued to ${issuedTo}`, 'success');
         }
 
         function invStaffNames() {
@@ -6937,7 +7005,7 @@
             if ((Number(it.qty) || 0) < 1) { toast('No stock available to issue', 'error'); return; }
             const names = invStaffNames().map(n => `<option value="${esc(n)}">`).join('');
             openModal('Issue Stock — ' + esc(it.name), `
-                <p style="font-size:13px;color:var(--text-light);margin-bottom:10px;">Available: <strong>${it.qty ?? 0} ${esc(it.unit || 'pc')}</strong></p>
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:10px;">Available: <strong>${it.qty ?? 0} ${esc(it.unit || 'pc')}</strong> · Acquired: <strong>${it.totalReceived ?? it.qty ?? 0}</strong></p>
                 <div class="form-grid">
                     <div class="form-group"><label>Issued To (Staff)*</label>
                         <input id="invTo" list="invToNames" placeholder="Type or pick a staff member">
