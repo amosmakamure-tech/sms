@@ -695,6 +695,36 @@
         .modal-body {
             padding: 20px;
         }
+        .modal::-webkit-scrollbar,
+        .modal-scroll::-webkit-scrollbar,
+        .table-wrap::-webkit-scrollbar {
+            width: 14px;
+            height: 14px;
+        }
+        .modal::-webkit-scrollbar-track,
+        .modal-scroll::-webkit-scrollbar-track,
+        .table-wrap::-webkit-scrollbar-track {
+            background: #eef2f7;
+            border-radius: 8px;
+        }
+        .modal::-webkit-scrollbar-thumb,
+        .modal-scroll::-webkit-scrollbar-thumb,
+        .table-wrap::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 8px;
+            border: 3px solid #eef2f7;
+        }
+        .modal::-webkit-scrollbar-thumb:hover,
+        .modal-scroll::-webkit-scrollbar-thumb:hover,
+        .table-wrap::-webkit-scrollbar-thumb:hover {
+            background: #1a237e;
+        }
+        .modal,
+        .modal-scroll,
+        .table-wrap {
+            scrollbar-width: auto;
+            scrollbar-color: var(--primary) #eef2f7;
+        }
         .modal-footer {
             padding: 14px 20px;
             border-top: 1px solid var(--border);
@@ -1468,6 +1498,13 @@
             font-size: 14px;
             border-top: 2px solid var(--primary);
             margin-top: 4px;
+        }
+        /* A visibly thicker scrollbar — easier to grab on touch & desktop */
+        .modal::-webkit-scrollbar,
+        .modal-scroll::-webkit-scrollbar,
+        .table-wrap::-webkit-scrollbar {
+            width: 16px;
+            height: 16px;
         }
     </style>
 </head>
@@ -2469,8 +2506,10 @@
 
                 const catTotals = {};
                 state.income.forEach(i => {
-                    const cat = state.incomeCategories.find(c => c.id === i.categoryId);
-                    if (cat) catTotals[cat.name] = (catTotals[cat.name] || 0) + i.amount;
+                    incomeBreakdownOf(i).forEach(b => {
+                        const cat = state.incomeCategories.find(c => c.id === b.categoryId);
+                        if (cat) catTotals[cat.name] = (catTotals[cat.name] || 0) + (Number(b.amount) || 0);
+                    });
                 });
                 chartInstances.incCat = new Chart($('incCatChart'), {
                     type: 'pie',
@@ -5797,34 +5836,58 @@
             return pool;
         }
 
+        let _bfPool = [];
+        let _bfVals = {};
+
         function setBulkBroughtForward() {
             const cls = val('bulkClass');
-            let pool = state.students.filter(s => s.status === 'Active');
-            if (cls) pool = pool.filter(s => s.class === cls);
-            if (!pool.length) { toast('No active students in this scope', 'error'); return; }
+            _bfPool = state.students.filter(s => s.status === 'Active');
+            if (cls) _bfPool = _bfPool.filter(s => s.class === cls);
+            if (!_bfPool.length) { toast('No active students in this scope', 'error'); return; }
+            _bfVals = {};
             openModal('📥 Fees Brought Forward',
                 `<p style="color:var(--text-light);font-size:13px;margin-bottom:10px;">Enter each student's balance brought forward (existing arrears from before the system was used). These amounts are added to their bill as B/F when you generate bills.${cls ? ` Scope: <b>${cls}</b>` : ' Scope: all active students'}</p>
-                <div style="max-height:60vh;overflow:auto;">
-                <table>
-                <thead><tr><th>Student</th><th>Class</th><th>B/F ($)</th></tr></thead>
-                <tbody>
-                ${pool.map(s => `<tr><td>${s.name}<br><span style="font-size:11px;color:var(--text-light);">${s.admNo || ''}</span></td><td>${s.class}</td><td><input type="number" id="bf_${s.id}" value="${Number(s.balanceFwd) || 0}" min="0" step="0.01" style="width:110px;"></td></tr>`).join('')}
-                </tbody>
-                </table>
-                </div>`,
+                <div class="filter-bar" style="margin-bottom:10px;">
+                    <input type="text" id="bfSearch" placeholder="🔍 Search learner by name, adm no or class..." oninput="renderBulkBFForm()">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-light);white-space:nowrap;cursor:pointer;">
+                        <input type="checkbox" id="bfOnlyBal" onchange="renderBulkBFForm()" style="width:auto;"> Only learners with a balance
+                    </label>
+                </div>
+                <div id="bfTableWrap" class="modal-scroll" style="max-height:55vh;overflow:auto;"></div>`,
                 [
                     { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
                     { label: 'Save B/F', cls: 'btn-primary', action: 'saveBulkBroughtForward()' }
                 ]);
+            renderBulkBFForm();
+        }
+
+        function renderBulkBFForm() {
+            const wrap = $('bfTableWrap');
+            if (!wrap) return;
+            const search = (val('bfSearch') || '').toLowerCase().trim();
+            const onlyBal = $('bfOnlyBal') && $('bfOnlyBal').checked;
+            const balOf = s => Number(_bfVals[s.id] !== undefined ? _bfVals[s.id] : (Number(s.balanceFwd) || 0)) || 0;
+            let rows = [..._bfPool];
+            if (onlyBal) rows = rows.filter(s => balOf(s) > 0);
+            if (search) rows = rows.filter(s => (s.name || '').toLowerCase().includes(search) || (s.admNo || '').toLowerCase().includes(search) || (s.class || '').toLowerCase().includes(search));
+            wrap.innerHTML = `
+                <p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">Showing <strong>${rows.length}</strong> of <strong>${_bfPool.length}</strong> learner(s) in scope.</p>
+                ${rows.length ? `<table>
+                <thead><tr><th>Student</th><th>Class</th><th>B/F ($)</th></tr></thead>
+                <tbody>
+                ${rows.map(s => `<tr><td>${s.name}<br><span style="font-size:11px;color:var(--text-light);">${s.admNo || ''}</span></td><td>${s.class}</td><td><input type="number" id="bf_${s.id}" value="${_bfVals[s.id] !== undefined ? _bfVals[s.id] : (Number(s.balanceFwd) || 0)}" min="0" step="0.01" style="width:120px;" oninput="_bfVals['${s.id}']=this.value"></td></tr>`).join('')}
+                </tbody>
+                </table>` : '<div class="empty-state"><div class="icon">🔍</div><h3>No learners match</h3><p>Adjust the search or clear the "only with a balance" filter.</p></div>'}`;
         }
 
         function saveBulkBroughtForward() {
             let saved = 0;
             state.students.forEach(s => {
                 const el = $('bf_' + s.id);
-                if (!el) return;
-                const v = parseFloat(el.value) || 0;
-                if (v >= 0 && (Number(s.balanceFwd) || 0) !== v) { s.balanceFwd = v; saved++; }
+                let raw = el ? el.value : (typeof _bfVals[s.id] !== 'undefined' ? _bfVals[s.id] : undefined);
+                if (raw === undefined || raw === '') return;
+                const v = parseFloat(raw);
+                if (!isNaN(v) && v >= 0 && (Number(s.balanceFwd) || 0) !== v) { s.balanceFwd = v; saved++; }
             });
             saveState();
             closeModal();
@@ -5948,6 +6011,12 @@
         // ============================================================
         //  INCOME (unchanged)
         // ============================================================
+        function incomeBreakdownOf(i) {
+            if (i.components && i.components.length) return i.components.filter(c => Number(c.amount) > 0);
+            if (Number(i.amount) > 0 && i.categoryId) return [{ categoryId: i.categoryId, amount: Number(i.amount) }];
+            return [];
+        }
+
         function incomePage() {
             const totalIncome = state.income.reduce((s, i) => s + i.amount, 0);
             $('pageContent').innerHTML = `
@@ -5955,14 +6024,14 @@
                 <div class="card-header">
                     <span class="card-title">📈 Income Records (Total: ${fmt(totalIncome)})</span>
                     <div class="btn-group">
-                        <button class="btn btn-primary" onclick="openAddIncome()">➕ Add Income</button>
+                        <button class="btn btn-primary" onclick="openAddIncome()">➕ Record Payment (any components)</button>
                         <button class="btn btn-outline" onclick="exportIncomeCSV()">📊 CSV</button>
                         <button class="btn btn-outline" onclick="exportIncomePDF()">📄 PDF</button>
                     </div>
                 </div>
                 <div class="fee-breakdown-grid" style="margin-bottom:16px;">
                     ${state.incomeCategories.map(cat => {
-                        const catTotal = state.income.filter(i => i.categoryId === cat.id).reduce((s, i) => s + i.amount, 0);
+                        const catTotal = state.income.reduce((s, i) => s + incomeBreakdownOf(i).filter(b => b.categoryId === cat.id).reduce((a, b) => a + (Number(b.amount) || 0), 0), 0);
                         return catTotal ? `<div class="fee-component" style="border-left:4px solid ${cat.color}">
                             <div class="fee-component-name">${cat.name}</div>
                             <div class="fee-component-amount" style="color:${cat.color}">${fmt(catTotal)}</div>
@@ -5997,18 +6066,22 @@
             let inc = [...state.income];
             const s = val('iFilt')?.toLowerCase();
             const cat = val('iCatFilt');
-            if (s) inc = inc.filter(i => i.description.toLowerCase().includes(s) || i.reference.toLowerCase().includes(
+            if (s) inc = inc.filter(i => (i.description || '').toLowerCase().includes(s) || (i.reference || '').toLowerCase().includes(
                 s));
-            if (cat) inc = inc.filter(i => i.categoryId === cat);
+            if (cat) inc = inc.filter(i => incomeBreakdownOf(i).some(b => b.categoryId === cat));
             $('incomeTableWrap').innerHTML = `<table>
-                <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Reference</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Date</th><th>Description</th><th>Components Paid</th><th>Total</th><th>Reference</th><th>Actions</th></tr></thead>
                 <tbody>${inc.map(i => {
-                    const cat = state.incomeCategories.find(c => c.id === i.categoryId);
+                    const parts = incomeBreakdownOf(i);
+                    const catCell = parts.length ? parts.map(b => {
+                        const c = state.incomeCategories.find(x => x.id === b.categoryId);
+                        return `<span class="badge-status badge-info" style="margin:1px;display:inline-block;">${esc(c?.name || '-')}: ${fmt(b.amount)}</span>`;
+                    }).join(' ') : '<span class="badge-status badge-warning">Unallocated</span>';
                     return `<tr>
-                        <td>${i.date}</td><td>${i.description}</td>
-                        <td><span class="badge-status badge-info">${cat?.name||'-'}</span></td>
+                        <td>${i.date}</td><td>${esc(i.description)}</td>
+                        <td>${catCell}</td>
                         <td><strong style="color:var(--success)">${fmt(i.amount)}</strong></td>
-                        <td>${i.reference}</td>
+                        <td>${esc(i.reference || '')}</td>
                         <td>
                             <button class="btn btn-sm btn-primary" onclick="editIncome('${i.id}')">✏️</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteIncome('${i.id}')">🗑️</button>
@@ -6019,15 +6092,30 @@
         }
 
         function incomeFormHTML(i = {}) {
+            const comps = {};
+            incomeBreakdownOf(i).forEach(b => { comps[b.categoryId] = Number(b.amount) || 0; });
+            const total = Object.values(comps).reduce((s, v) => s + v, 0);
             return `<div class="form-grid">
                 <div class="form-group"><label>Date*</label><input type="date" id="iDate" value="${i.date||new Date().toISOString().split('T')[0]}"></div>
-                <div class="form-group"><label>Category*</label><select id="iCat">
-                    ${state.incomeCategories.map(c => `<option value="${c.id}" ${i.categoryId===c.id?'selected':''}>${c.name}</option>`).join('')}
-                </select></div>
-                <div class="form-group" style="grid-column:1/-1;"><label>Description*</label><input id="iDesc" value="${i.description||''}"></div>
-                <div class="form-group"><label>Amount*</label><input type="number" id="iAmount" value="${i.amount||''}"></div>
                 <div class="form-group"><label>Reference</label><input id="iRef" value="${i.reference||''}"></div>
+                <div class="form-group" style="grid-column:1/-1;"><label>Description*</label><input id="iDesc" value="${i.description||''}" placeholder="e.g., Term 1 fees — Muchadeyi (Form 3A)"></div>
+            </div>
+            <h4 style="margin:14px 0 6px;color:var(--primary)">💳 Components Paid — Total: <span id="iTot">${fmt(total)}</span></h4>
+            <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">When a learner pays for more than one component (e.g. Tuition + Sports + Library), enter the amount paid for each one here — all in this single entry. Leave blank what wasn't paid.</p>
+            <div class="form-grid">
+                ${state.incomeCategories.map(c => `<div class="form-group">
+                    <label>${esc(c.name)}</label>
+                    <input type="number" id="iCat_${c.id}" value="${comps[c.id] || ''}" min="0" step="0.01" placeholder="0.00" oninput="updateIncomeTotal()">
+                </div>`).join('')}
             </div>`;
+        }
+
+        function updateIncomeTotal() {
+            const el = $('iTot');
+            if (!el) return;
+            let t = 0;
+            (state.incomeCategories || []).forEach(c => { t += parseFloat(val('iCat_' + c.id)) || 0; });
+            el.textContent = fmt(t);
         }
 
         function openAddIncome() {
@@ -6035,16 +6123,30 @@
                 { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
                 { label: 'Save', cls: 'btn-success', action: 'saveIncome()' }
             ]);
+            setTimeout(updateIncomeTotal, 0);
+        }
+
+        function collectIncomeComponents() {
+            const comps = [];
+            (state.incomeCategories || []).forEach(c => {
+                const v = parseFloat(val('iCat_' + c.id)) || 0;
+                if (v > 0) comps.push({ categoryId: c.id, amount: v });
+            });
+            return comps;
         }
 
         function saveIncome() {
-            const entry = { id: 'i' + Date.now(), date: val('iDate'), categoryId: val('iCat'), description: val(
-                    'iDesc'), amount: parseFloat(val('iAmount')) || 0, reference: val('iRef') };
-            state.income.push(entry);
+            const desc = val('iDesc').trim();
+            if (!desc) { toast('Enter a description', 'error'); return; }
+            const comps = collectIncomeComponents();
+            const total = comps.reduce((s, b) => s + b.amount, 0);
+            if (!total) { toast('Enter an amount for at least one component', 'error'); return; }
+            state.income.push({ id: 'i' + Date.now(), date: val('iDate'), description: desc, amount: total,
+                reference: val('iRef'), components: comps, categoryId: comps[0].categoryId });
             saveState();
             closeModal();
             incomePage();
-            toast('Income recorded!', 'success');
+            toast(`Income recorded across ${comps.length} component(s)!`, 'success');
         }
 
         function editIncome(id) {
@@ -6053,12 +6155,18 @@
                 { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
                 { label: 'Update', cls: 'btn-success', action: `updateIncome('${id}')` }
             ]);
+            setTimeout(updateIncomeTotal, 0);
         }
 
         function updateIncome(id) {
             const idx = state.income.findIndex(x => x.id === id);
-            state.income[idx] = { ...state.income[idx], date: val('iDate'), categoryId: val('iCat'), description: val(
-                    'iDesc'), amount: parseFloat(val('iAmount')) || 0, reference: val('iRef') };
+            const desc = val('iDesc').trim();
+            if (!desc) { toast('Enter a description', 'error'); return; }
+            const comps = collectIncomeComponents();
+            const total = comps.reduce((s, b) => s + b.amount, 0);
+            if (!total) { toast('Enter an amount for at least one component', 'error'); return; }
+            state.income[idx] = { ...state.income[idx], date: val('iDate'), description: desc, amount: total,
+                reference: val('iRef'), components: comps, categoryId: comps[0].categoryId };
             saveState();
             closeModal();
             incomePage();
@@ -6082,9 +6190,12 @@
                 saveState();
                 incomePage(); } }
 
-        function exportIncomeCSV() { downloadCSV('Income', ['Date', 'Description', 'Category', 'Amount', 'Reference'],
-                state.income.map(i => [i.date, i.description, state.incomeCategories.find(c => c.id === i.categoryId)
-                    ?.name || '-', i.amount, i.reference
+        function incomeComponentLabel(i) {
+            return incomeBreakdownOf(i).map(b => (state.incomeCategories.find(c => c.id === b.categoryId)?.name || '-') + ': ' + (Number(b.amount) || 0)).join('; ');
+        }
+
+        function exportIncomeCSV() { downloadCSV('Income', ['Date', 'Description', 'Components Paid', 'Total', 'Reference'],
+                state.income.map(i => [i.date, i.description, incomeComponentLabel(i), i.amount, i.reference
                 ])
             ); }
 
@@ -6096,10 +6207,9 @@
             doc.autoTable({
                 startY: 30,
                 head: [
-                    ['Date', 'Description', 'Category', 'Amount', 'Ref']
+                    ['Date', 'Description', 'Components Paid', 'Total', 'Ref']
                 ],
-                body: state.income.map(i => [i.date, i.description, state.incomeCategories.find(c => c.id === i
-                    .categoryId)?.name || '-', fmt(i.amount), i.reference
+                body: state.income.map(i => [i.date, i.description, incomeComponentLabel(i), fmt(i.amount), i.reference
                 ]),
                 headStyles: { fillColor: [26, 35, 126] }
             });
@@ -6294,9 +6404,9 @@
             setTimeout(() => {
                 if ($('accIncChart')) {
                     const catTotals = {};
-                    state.income.forEach(i => { const cat = state.incomeCategories.find(c => c.id === i
-                            .categoryId); if (cat) catTotals[cat.name] = (catTotals[cat.name] || 0) + i
-                            .amount; });
+                    state.income.forEach(i => { incomeBreakdownOf(i).forEach(b => { const cat = state
+                                .incomeCategories.find(c => c.id === b.categoryId); if (cat) catTotals[cat.name] = (catTotals[cat
+                                .name] || 0) + (Number(b.amount) || 0); }); });
                     chartInstances.accInc = new Chart($('accIncChart'), { type: 'pie', data: { labels: Object
                                 .keys(catTotals), datasets: [{ data: Object.values(catTotals),
                                     backgroundColor: state.incomeCategories.map(c => c.color)
@@ -6322,8 +6432,9 @@
             const totalExp = state.expenditure.reduce((s, e) => s + e.amount, 0);
             const surplus = totalIncome - totalExp;
             const incomeByCat = {};
-            state.income.forEach(i => { const cat = state.incomeCategories.find(c => c.id === i.categoryId); if (cat)
-                    incomeByCat[cat.name] = (incomeByCat[cat.name] || 0) + i.amount; });
+            state.income.forEach(i => { incomeBreakdownOf(i).forEach(b => { const cat = state
+                    .incomeCategories.find(c => c.id === b.categoryId); if (cat) incomeByCat[cat.name] = (incomeByCat[cat
+                    .name] || 0) + (Number(b.amount) || 0); }); });
             const expByCat = {};
             state.expenditure.forEach(e => { const cat = state.expenditureCategories.find(c => c.id === e.categoryId); if (
                     cat) expByCat[cat.name] = (expByCat[cat.name] || 0) + e.amount; });
@@ -6485,8 +6596,9 @@
 
             let y = 50;
             const incomeByCat = {};
-            state.income.forEach(i => { const cat = state.incomeCategories.find(c => c.id === i.categoryId); if (cat)
-                    incomeByCat[cat.name] = (incomeByCat[cat.name] || 0) + i.amount; });
+            state.income.forEach(i => { incomeBreakdownOf(i).forEach(b => { const cat = state
+                    .incomeCategories.find(c => c.id === b.categoryId); if (cat) incomeByCat[cat.name] = (incomeByCat[cat
+                    .name] || 0) + (Number(b.amount) || 0); }); });
             const expByCat = {};
             state.expenditure.forEach(e => { const cat = state.expenditureCategories.find(c => c.id === e.categoryId); if (
                     cat) expByCat[cat.name] = (expByCat[cat.name] || 0) + e.amount; });
