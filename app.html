@@ -2775,11 +2775,14 @@
                     <th class="sortable ${studentSort.col==='name'?studentSort.dir:''}" onclick="sortStudents('name')">Name</th>
                     <th class="sortable ${studentSort.col==='class'?studentSort.dir:''}" onclick="sortStudents('class')">Class</th>
                     <th>Gender</th><th>Parent</th><th>Phone</th><th>WhatsApp</th>
+                    <th>Fee Balance</th>
                     <th class="sortable ${studentSort.col==='status'?studentSort.dir:''}" onclick="sortStudents('status')">Status</th>
                     <th>Actions</th>
                 </tr></thead>
                 <tbody>
-                ${items.length ? items.map(s => `<tr>
+                ${items.length ? items.map(s => {
+                    const fb = studentFeeSummary(s.id);
+                    return `<tr>
                     <td>${s.photo ? `<img src="${s.photo}" class="profile-thumb">` : '-'}</td>
                     <td><strong>${s.admNo}</strong></td>
                     <td>${s.name}</td>
@@ -2788,15 +2791,18 @@
                     <td>${s.parent}</td>
                     <td>${s.phone}</td>
                     <td>${s.parentWhatsapp || '-'}</td>
+                    <td><strong style="color:${fb.balance > 0 ? 'var(--danger)' : fb.recs.length ? 'var(--success)' : 'var(--text-light)'};">${fb.recs.length ? fmt(fb.balance) : '—'}</strong>${fb.bf > 0 ? `<br><span style="font-size:11px;color:var(--text-light);">incl. ${fmt(fb.bf)} B/F</span>` : ''}</td>
                     <td><span class="badge-status ${s.status==='Active'?'badge-success':'badge-danger'}">${s.status}</span></td>
                     <td>
                         <button class="btn btn-sm btn-outline" onclick="viewStudent('${s.id}')">👁️</button>
                         <button class="btn btn-sm btn-primary" onclick="editStudent('${s.id}')">✏️</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteStudent('${s.id}')">🗑️</button>
                         <button class="btn btn-sm btn-outline" onclick="printStudentEnrolment('${s.id}')">📄</button>
+                        <button class="btn btn-sm btn-success" onclick="quickPayFeeForStudent('${s.id}')" title="Receive fee payment">💵</button>
                         <button class="btn btn-sm btn-success" onclick="sendWhatsAppToParent('${s.id}')">📱</button>
                     </td>
-                </tr>`).join('') : '<tr><td colspan="10"><div class="empty-state"><div class="icon">👨‍🎓</div><h3>No students found</h3></div></td></tr>'}
+                </tr>`;
+                }).join('') : '<tr><td colspan="11"><div class="empty-state"><div class="icon">👨‍🎓</div><h3>No students found</h3></div></td></tr>'}
                 </tbody>
             </table>`;
             renderPagination(STUDENT_PAGE_KEY, totalPages, 'studentPagination', 'goToStudentPage');
@@ -3051,11 +3057,8 @@
             const sickDays = sAtt.filter(a => a.records[id] === 'S').length;
             const totalDays = sAtt.length;
             const attPct = totalDays ? Math.round(presentDays / totalDays * 100) : 0;
-            const feeRecs = state.fees.filter(f => f.studentId === id);
-            const totalPaid = feeRecs.reduce((sum, f) => sum + Object.values(f.payments).reduce((a, b) => a + b, 0), 0);
-            const totalExpected = feeRecs.reduce((sum, f) => sum + state.feeComponents.reduce((a, fc) => a + fc.amount, 0),
-            0);
-            const balance = totalExpected - totalPaid;
+            const fee = studentFeeSummary(id);
+            const { billed: totalExpected, bf: totalBf, paid: totalPaid, balance } = fee;
 
             openModal(`Student Profile - ${s.name}`, `
             <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
@@ -3083,14 +3086,27 @@
             </div>
             <div style="margin-top:12px;"><div class="progress-bar"><div class="progress-fill" style="width:${attPct}%;background:${attPct>=80?'var(--success)':attPct>=60?'var(--warning)':'var(--danger)'};"></div></div></div>
             <hr style="margin:14px 0;">
-            <div><strong>💰 Fee Statement</strong></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px;">
+            <div><strong>💰 Fee Statement</strong>${fee.recs.length ? '' : ' <span style="font-size:12px;color:var(--text-light)">(no fee records yet)</span>'}</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-top:8px;">
                 <div style="background:#e8f5e9;padding:8px;border-radius:8px;text-align:center;"><div style="font-size:12px;color:var(--text-light)">Total Paid</div><div style="font-weight:700;color:var(--success)">${fmt(totalPaid)}</div></div>
-                <div style="background:#ffebee;padding:8px;border-radius:8px;text-align:center;"><div style="font-size:12px;color:var(--text-light)">Balance</div><div style="font-weight:700;color:var(--danger)">${fmt(balance)}</div></div>
-                <div style="background:#e3f2fd;padding:8px;border-radius:8px;text-align:center;"><div style="font-size:12px;color:var(--text-light)">Expected</div><div style="font-weight:700;color:var(--primary)">${fmt(totalExpected)}</div></div>
+                <div style="background:#f3e5f5;padding:8px;border-radius:8px;text-align:center;"><div style="font-size:12px;color:var(--text-light)">Brought Forward</div><div style="font-weight:700;color:#6a1b9a">${fmt(totalBf)}</div></div>
+                <div style="background:#e3f2fd;padding:8px;border-radius:8px;text-align:center;"><div style="font-size:12px;color:var(--text-light)">Expected</div><div style="font-weight:700;color:var(--primary)">${fmt(totalExpected + totalBf)}</div></div>
+                <div style="background:${balance > 0 ? '#ffebee' : '#e8f5e9'};padding:8px;border-radius:8px;text-align:center;"><div style="font-size:12px;color:var(--text-light)">Balance</div><div style="font-weight:700;color:${balance > 0 ? 'var(--danger)' : 'var(--success)'}">${fmt(balance)}</div></div>
             </div>
-            <div style="margin-top:12px;">
+            <div style="margin-top:10px;font-size:13px;">
+                Status: <span class="badge-status ${fee.status==='Paid'?'badge-success':fee.status==='Partial'?'badge-warning':'badge-danger'}">${fee.status}</span>
+            </div>
+            ${fee.recs.length ? `<div class="table-wrap" style="margin-top:10px;max-height:180px;overflow:auto;">
+                <table><thead><tr><th>Term</th><th>Year</th><th>Billed</th><th>B/F</th><th>Paid</th><th>Balance</th></tr></thead>
+                <tbody>${fee.recs.map(f => {
+                    const bal = feeBilledTotal(f) + (Number(f.bf) || 0) - feePaidTotal(f);
+                    return `<tr><td>${f.term}</td><td>${f.year}</td><td>${fmt(feeBilledTotal(f))}</td><td>${fmt(f.bf || 0)}</td><td>${fmt(feePaidTotal(f))}</td>
+                    <td style="color:${bal > 0 ? 'var(--danger)' : 'var(--success)'}">${fmt(bal)}</td></tr>`;
+                }).join('')}</tbody></table>
+            </div>` : ''}
+            <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-sm btn-success" onclick="sendWhatsAppToParent('${s.id}');closeModal();">📱 Send WhatsApp</button>
+                <button class="btn btn-sm btn-primary" onclick="closeModal();quickPayFeeForStudent('${s.id}')">💵 Receive Payment</button>
             </div>
             `, [
                 { label: 'Close', cls: 'btn-outline', action: 'closeModal()' },
@@ -3101,7 +3117,6 @@
 
         function printStudentStatement(studentId) {
             const s = state.students.find(x => x.id === studentId);
-            const feeRecs = state.fees.filter(f => f.studentId === studentId);
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             const pg = state.settings;
@@ -3121,24 +3136,21 @@
             doc.text(`Class: ${s.class}`, 14, 68);
             doc.text(`Academic Year: ${pg.academicYear}`, 14, 76);
 
-            const totalPaid = feeRecs.reduce((sum, f) => sum + Object.values(f.payments).reduce((a, b) => a + b, 0), 0);
-            const totalExpected = feeRecs.length ? feeRecs.reduce((sum, f) => sum + state.feeComponents.reduce((a, fc) => a +
-                fc.amount, 0), 0) : state.feeComponents.reduce((a, fc) => a + fc.amount, 0);
+            const fee = studentFeeSummary(studentId);
 
             doc.autoTable({
                 startY: 84,
                 head: [
-                    ['Term', 'Year', 'Amount Paid', 'Balance', 'Status']
+                    ['Term', 'Year', 'Billed', 'B/F', 'Paid', 'Balance', 'Status']
                 ],
-                body: feeRecs.length ? feeRecs.map(f => {
-                    const paid = Object.values(f.payments).reduce((a, b) => a + b, 0);
-                    const expected = state.feeComponents.reduce((a, fc) => a + fc.amount, 0);
-                    return [f.term, f.year, fmt(paid), fmt(expected - paid), f.status];
+                body: fee.recs.length ? fee.recs.map(f => {
+                    const bal = feeBilledTotal(f) + (Number(f.bf) || 0) - feePaidTotal(f);
+                    return [f.term, f.year, fmt(feeBilledTotal(f)), fmt(f.bf || 0), fmt(feePaidTotal(f)), fmt(bal), f.status];
                 }) : [
-                    ['No records', '', '', '', '']
+                    ['No records', '', '', '', '', '', '']
                 ],
                 foot: [
-                    ['TOTAL', '', fmt(totalPaid), fmt(totalExpected - totalPaid), '']
+                    ['TOTAL', '', fmt(fee.billed), fmt(fee.bf), fmt(fee.paid), fmt(fee.balance), fee.status]
                 ],
                 headStyles: { fillColor: [26, 35, 126] },
                 footStyles: { fillColor: [240, 244, 255], fontStyle: 'bold' }
@@ -5427,6 +5439,7 @@
                             <button class="btn btn-primary" onclick="openAddFee()">➕ Add Payment</button>
                             <button class="btn btn-outline" onclick="exportFeesCSV()">📊 CSV</button>
                             <button class="btn btn-outline" onclick="exportFeesPDF()">📄 PDF</button>
+                            <button class="btn btn-outline" onclick="resyncFeeIncome()" title="Rebuild Income entries from your fee records">🔄 Sync to Revenue</button>
                         </div>
                     </div>
                     <div class="fee-breakdown-grid" style="margin-bottom:16px;">
@@ -5541,6 +5554,18 @@
             return paid >= billed + bf ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid';
         }
 
+        // Single source of truth for a learner's fee position. Every view (student profile,
+        // statement PDF, learner profile list, dashboards) must use this so a payment always
+        // reduces the balance by the same amount.
+        function studentFeeSummary(studentId) {
+            const recs = (state.fees || []).filter(f => f.studentId === studentId);
+            const billed = recs.reduce((s, f) => s + feeBilledTotal(f), 0);
+            const bf = recs.reduce((s, f) => s + (Number(f.bf) || 0), 0);
+            const paid = recs.reduce((s, f) => s + feePaidTotal(f), 0);
+            const balance = billed + bf - paid;
+            return { recs, billed, bf, paid, balance, status: feeStatusFor(paid, billed, bf) };
+        }
+
         function renderFeeTable() {
             let fees = [...state.fees];
             const search = val('fFilt')?.toLowerCase();
@@ -5590,7 +5615,8 @@
                         <td style="color:${balance>0?'var(--danger)':'var(--success)'}">${fmt(balance)}</td>
                         <td><span class="badge-status ${f.status==='Paid'?'badge-success':f.status==='Partial'?'badge-warning':'badge-danger'}">${f.status}</span></td>
                         <td>
-                            <button class="btn btn-sm btn-primary" onclick="editFeeRecord('${f.id}')">✏️</button>
+                            <button class="btn btn-sm btn-primary" onclick="quickPayFee('${f.id}')" title="Record a payment for this learner">💵 Pay</button>
+                            <button class="btn btn-sm btn-outline" onclick="editFeeRecord('${f.id}')">✏️</button>
                             <button class="btn btn-sm btn-outline" onclick="printFeeReceipt('${f.id}')">🧾</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteFeeRecord('${f.id}')">🗑️</button>
                         </td>
@@ -5609,7 +5635,7 @@
                 </select></div>
                 <div class="form-group"><label>Class</label><input id="feeClass" readonly></div>
                 <div class="form-group"><label>Term</label><select id="feeTerm">
-                    <option>Term 1</option><option>Term 2</option><option>Term 3</option>
+                    ${['Term 1', 'Term 2', 'Term 3'].map(t => `<option ${state.settings.term === t ? 'selected' : ''}>${t}</option>`).join('')}
                 </select></div>
                 <div class="form-group"><label>Year</label><input id="feeYear" value="${state.settings.academicYear}"></div>
                 <div class="form-group"><label>Date</label><input type="date" id="feeDate" value="${new Date().toISOString().split('T')[0]}"></div>
@@ -5617,22 +5643,159 @@
                     <option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Mobile Money</option>
                 </select></div>
             </div>
-            <h4 style="margin:14px 0 10px;color:var(--primary)">💳 Fee Breakdown</h4>
+            <h4 style="margin:14px 0 10px;color:var(--primary)">💳 Fee Breakdown — <span id="feePayTotal">${fmt(state.feeComponents.reduce((s, fc) => s + fc.amount, 0))}</span></h4>
+            <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Enter the amount paid for each component. Any component not paid stays 0. This also posts the same amounts to Income (revenue) automatically.</p>
             <div class="form-grid">
                 ${state.feeComponents.map(fc => `<div class="form-group">
                     <label>${fc.name} (Expected: ${fmt(fc.amount)})</label>
-                    <input type="number" id="fee_${fc.id}" value="${fc.amount}" min="0">
+                    <input type="number" id="fee_${fc.id}" value="${fc.amount}" min="0" step="0.01" oninput="updateFeePayTotal()">
                 </div>`).join('')}
-            </div>`, [
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--text-light);cursor:pointer;">
+                <input type="checkbox" id="feePayFull" checked style="width:auto;" onchange="fillFullFeeAmounts()"> Fill full component amounts
+            </label>`, [
                 { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
                 { label: 'Save Payment', cls: 'btn-primary', action: 'saveFeeRecord()' }
             ]);
+            setTimeout(updateFeePayTotal, 0);
         }
 
         function fillFeeClass() {
             const sel = $('feeStudent');
             const opt = sel.options[sel.selectedIndex];
             $('feeClass').value = opt.dataset.class || '';
+        }
+
+        function updateFeePayTotal() {
+            const el = $('feePayTotal');
+            if (!el) return;
+            let t = 0;
+            state.feeComponents.forEach(fc => { t += parseFloat(val('fee_' + fc.id)) || 0; });
+            el.textContent = fmt(t);
+        }
+
+        // "Pay" from the Fee Records table — pre-filled with what is still outstanding.
+        function quickPayFeeForStudent(studentId) {
+            const term = state.settings.term, year = state.settings.academicYear;
+            const rec = state.fees.find(f => f.studentId === studentId && f.term === term && f.year === year)
+                || state.fees.find(f => f.studentId === studentId);
+            if (rec) { quickPayFee(rec.id); return; }
+            toast('No fee record for this learner — use Fees Management → ➕ Add Payment to create one', 'error');
+        }
+
+        function quickPayFee(id) {
+            const f = state.fees.find(x => x.id === id);
+            if (!f) return;
+            const balance = Math.max(0, feeBilledTotal(f) + (f.bf || 0) - feePaidTotal(f));
+            openModal('💵 Receive Payment — ' + esc(f.studentName), `
+            <div class="form-grid">
+                <div class="form-group"><label>Learner</label><input value="${esc(f.studentName)} — ${esc(f.class)}" readonly></div>
+                <div class="form-group"><label>Term</label><input value="${f.term} ${f.year}" readonly></div>
+                <div class="form-group"><label>Date</label><input type="date" id="qpDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-group"><label>Method</label><select id="qpMethod">
+                    ${['Cash', 'Bank Transfer', 'Cheque', 'Mobile Money'].map(m => `<option>${m}</option>`).join('')}
+                </select></div>
+            </div>
+            <h4 style="margin:14px 0 6px;color:var(--primary)">Outstanding: <span style="color:${balance > 0 ? 'var(--danger)' : 'var(--success)'}">${fmt(balance)}</span></h4>
+            <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Enter what was paid against each component — leave blank or 0 for anything not paid.</p>
+            <div class="form-grid">
+                ${state.feeComponents.map(fc => {
+                    const paid = Number(f.payments?.[fc.id]) || 0;
+                    const out = Math.max(0, feeBilledOf(f, fc.id, fc.amount) - paid);
+                    return `<div class="form-group">
+                        <label>${fc.name}<br><span style="font-size:11px;color:var(--text-light);">outstanding ${fmt(out)}</span></label>
+                        <input type="number" id="qp_${fc.id}" data-out="${out}" value="${out}" min="0" step="0.01">
+                    </div>`;
+                }).join('')}
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text-light);cursor:pointer;">
+                <input type="checkbox" id="qpPayAll" checked style="width:auto;" onchange="toggleQuickPayAll()"> Pay everything outstanding
+            </label>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Record Payment', cls: 'btn-primary', action: `saveQuickPay('${id}')` }
+            ]);
+        }
+
+        function toggleQuickPayAll() {
+            const on = $('qpPayAll') && $('qpPayAll').checked;
+            state.feeComponents.forEach(fc => {
+                const el = $('qp_' + fc.id);
+                if (!el) return;
+                el.value = on ? (parseFloat(el.getAttribute('data-out') || '0') || 0) : 0;
+            });
+        }
+
+        function saveQuickPay(id) {
+            const idx = state.fees.findIndex(x => x.id === id);
+            if (idx < 0) return;
+            const prev = state.fees[idx];
+            const payments = { ...(prev.payments || {}) };
+            let added = 0;
+            state.feeComponents.forEach(fc => {
+                const add = parseFloat(val('qp_' + fc.id)) || 0;
+                if (add > 0) {
+                    payments[fc.id] = (Number(payments[fc.id]) || 0) + add;
+                    added += add;
+                }
+            });
+            if (!added) { toast('Enter an amount paid', 'error'); return; }
+            const billed = (prev.billed && Object.keys(prev.billed).length) ? prev.billed : Object.fromEntries(state.feeComponents.map(fc => [fc.id, fc.amount]));
+            const totalPaid = Object.values(payments).reduce((s, v) => s + (Number(v) || 0), 0);
+            const totalBilled = Object.values(billed).reduce((s, v) => s + (Number(v) || 0), 0);
+            state.fees[idx] = { ...prev, payments, billed,
+                date: val('qpDate'), method: val('qpMethod'),
+                status: feeStatusFor(totalPaid, totalBilled, Number(prev.bf) || 0) };
+            const posted = postFeeToIncome(state.fees[idx]);
+            saveState();
+            closeModal();
+            feesPage();
+            toast(`${fmt(added)} received from ${prev.studentName}${posted ? ' — posted to Income' : ''}`, 'success');
+        }
+
+        function fillFullFeeAmounts() {
+            state.feeComponents.forEach(fc => {
+                const el = $('fee_' + fc.id);
+                if (el) el.value = ($('feePayFull') && $('feePayFull').checked) ? fc.amount : 0;
+            });
+            updateFeePayTotal();
+        }
+
+        // Maps a fee component to an income category of the same name, creating one if missing
+        function incomeCategoryForFee(fc) {
+            let cat = (state.incomeCategories || []).find(c => (c.name || '').trim().toLowerCase() === fc.name.trim().toLowerCase());
+            if (!cat) {
+                cat = { id: 'ic' + Date.now() + Math.random().toString(36).slice(2, 5), name: fc.name,
+                    color: '#' + Math.floor(Math.random() * 16777215).toString(16) };
+                state.incomeCategories.push(cat);
+            }
+            return cat;
+        }
+
+        // Mirrors a fee payment into Income (revenue) so the ledger stays in step with Fee Records.
+        // Tagged with feeRecordId so re-saving the same payment replaces it instead of double-counting.
+        function postFeeToIncome(f) {
+            const comps = [];
+            state.feeComponents.forEach(fc => {
+                const paid = Number(f.payments[fc.id]) || 0;
+                if (paid > 0) comps.push({ categoryId: incomeCategoryForFee(fc).id, amount: paid });
+            });
+            const total = comps.reduce((s, c) => s + c.amount, 0);
+            const existingIdx = state.income.findIndex(i => i.feeRecordId === f.id);
+            if (!total) {
+                if (existingIdx >= 0) state.income.splice(existingIdx, 1);
+                return 0;
+            }
+            const entry = { id: existingIdx >= 0 ? state.income[existingIdx].id : 'i' + Date.now(),
+                date: f.date || new Date().toISOString().split('T')[0],
+                description: `${f.term} fees — ${f.studentName}${f.method ? ' (' + f.method + ')' : ''}`,
+                amount: total,
+                reference: `Fee ${f.id}`,
+                components: comps,
+                categoryId: comps[0].categoryId,
+                feeRecordId: f.id };
+            if (existingIdx >= 0) state.income[existingIdx] = entry;
+            else state.income.push(entry);
+            return total;
         }
 
         function saveFeeRecord() {
@@ -5649,10 +5812,10 @@
             const bf = existing >= 0 ? (Number(state.fees[existing].bf) || 0) : (Number(s.balanceFwd) || 0);
             const status = feeStatusFor(totalPaid, totalExpected, bf);
             const record = {
-                id: 'f' + Date.now(),
+                id: existing >= 0 ? state.fees[existing].id : 'f' + Date.now(),
                 studentId,
                 studentName: s.name,
-                class: val('feeClass'),
+                class: val('feeClass') || (s.class || ''),
                 term: val('feeTerm'),
                 year: val('feeYear'),
                 payments,
@@ -5664,10 +5827,11 @@
             };
             if (existing >= 0) state.fees[existing] = record;
             else state.fees.push(record);
+            const posted = postFeeToIncome(record);
             saveState();
             closeModal();
             feesPage();
-            toast('Payment recorded!', 'success');
+            toast(posted ? `Payment recorded — ${fmt(posted)} posted to Income (revenue)!` : 'Payment recorded!', 'success');
         }
 
         function editFeeRecord(id) {
@@ -5682,16 +5846,18 @@
                 </select></div>
                 <div class="form-group" style="grid-column:1/-1;"><label>Brought Forward (B/F)</label><input type="number" id="bfEdit" value="${f.bf || 0}" min="0" step="0.01" style="width:100%;"></div>
             </div>
-            <h4 style="margin:14px 0 10px;color:var(--primary)">💳 Fee Breakdown</h4>
+            <h4 style="margin:14px 0 10px;color:var(--primary)">💳 Fee Breakdown — <span id="feePayTotal">${fmt(feePaidTotal(f))}</span></h4>
+            <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Balance: <strong>${fmt(Math.max(0, feeBilledTotal(f) + (f.bf || 0) - feePaidTotal(f)))}</strong> outstanding. Saving also updates the matching Income (revenue) entry.</p>
             <div class="form-grid">
                 ${state.feeComponents.map(fc => `<div class="form-group">
                     <label>${fc.name} (Billed: ${fmt(feeBilledOf(f, fc.id, fc.amount))})</label>
-                    <input type="number" id="fee_${fc.id}" value="${f.payments[fc.id]||0}" min="0">
+                    <input type="number" id="fee_${fc.id}" value="${f.payments[fc.id]||0}" min="0" step="0.01" oninput="updateFeePayTotal()">
                 </div>`).join('')}
             </div>`, [
                 { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
                 { label: 'Update', cls: 'btn-primary', action: `updateFeeRecord('${id}')` }
             ]);
+            setTimeout(updateFeePayTotal, 0);
         }
 
         function updateFeeRecord(id) {
@@ -5712,15 +5878,30 @@
                 method: val('feeMethod'),
                 status: feeStatusFor(totalPaid, totalExpected, bf)
             };
+            const posted = postFeeToIncome(state.fees[idx]);
             saveState();
             closeModal();
             feesPage();
-            toast('Fee record updated!', 'success');
+            toast(posted ? `Fee record updated — ${fmt(posted)} synced to Income` : 'Fee record updated!', 'success');
         }
 
-        function deleteFeeRecord(id) { if (!confirm('Delete?')) return; state.fees = state.fees.filter(f => f.id !== id);
+        function deleteFeeRecord(id) {
+            if (!confirm('Delete this fee record? Its matching Income entry will also be removed.')) return;
+            state.fees = state.fees.filter(f => f.id !== id);
+            state.income = state.income.filter(i => i.feeRecordId !== id);
             saveState();
-            feesPage(); }
+            feesPage();
+        }
+
+        // Repairs any drift: rebuilds every auto-posted Income entry from the current fee records
+        function resyncFeeIncome() {
+            state.income = state.income.filter(i => !i.feeRecordId);
+            let n = 0;
+            state.fees.forEach(f => { if (postFeeToIncome(f) > 0) n++; });
+            saveState();
+            feesPage();
+            toast(`Synced ${n} fee payment(s) to Income`, 'success');
+        }
 
         function addFeeComponent() {
             openModal('Add Fee Component', `
@@ -8227,10 +8408,8 @@
                 }));
                 const overallAvg = subjectAverages.length ? Math.round(subjectAverages.reduce((sum, s) => sum + s.avg, 0) / subjectAverages.length) : 0;
                 
-                const feeRecs = state.fees.filter(f => f.studentId === s.id);
-                const totalPaid = feeRecs.reduce((sum, f) => sum + Object.values(f.payments).reduce((a, b) => a + b, 0), 0);
-                const totalExpected = feeRecs.reduce((sum, f) => sum + state.feeComponents.reduce((a, fc) => a + fc.amount, 0), 0);
-                const feeBalance = totalExpected - totalPaid;
+                const fee = studentFeeSummary(s.id);
+                const feeBalance = fee.balance;
                 
                 return {
                     studentId: s.id,
