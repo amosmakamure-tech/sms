@@ -4230,6 +4230,12 @@
                             <option value="">All Subjects</option>
                             ${state.subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
                         </select>
+                        <select id="mvTerm" onchange="renderAllMarks()">
+                            <option value="">All Terms</option>
+                            <option value="Term 1">Term 1</option>
+                            <option value="Term 2">Term 2</option>
+                            <option value="Term 3">Term 3</option>
+                        </select>
                         <select id="mvType" onchange="renderAllMarks()">
                             <option value="">All Types</option>
                             <option value="CA">CA</option>
@@ -4386,6 +4392,7 @@
                 if (examExisting >= 0) state.marks[examExisting] = examEntry;
                 else state.marks.push(examEntry);
             });
+            invalidateReportCache();
             saveState();
             toast('Marks saved successfully!', 'success');
             renderAllMarks();
@@ -4559,6 +4566,7 @@
                 }
             });
             if (!count) { toast('Enter some marks first', 'error'); return; }
+            invalidateReportCache();
             saveState();
             renderTestsList();
             renderTestEntryGrid();
@@ -4569,6 +4577,7 @@
             if (!confirm(`Delete all records for "${label}"?`)) return;
             state.marks = state.marks.filter(m => !(m.type === 'Test' && m.label === label));
             state.marks = state.marks.filter(m => !(m.type === 'CA' && m.fromTest === label));
+            invalidateReportCache();
             saveState();
             loadTestRegister();
             toast('Test records deleted', 'success');
@@ -4579,15 +4588,58 @@
             const cls = val('mvClass');
             const subj = val('mvSubject');
             const type = val('mvType');
+            const term = val('mvTerm');
             if (cls) marks = marks.filter(m => m.class === cls);
             if (subj) marks = marks.filter(m => m.subject === subj);
             if (type) marks = marks.filter(m => m.type === type);
+            if (term) marks = marks.filter(m => m.term === term);
+
+            const year = state.settings.academicYear;
+            marks = marks.filter(m => !m.year || m.year === year);
+
+            if (marks.length && state.students.length) {
+                const scope = new Set(marks.map(m => m.studentId));
+                const targets = state.students.filter(s => scope.has(s.id));
+                const allSubs = [...new Set(marks.map(m => m.subject))].sort();
+                const cells = {};
+                marks.forEach(m => {
+                    const key = m.studentId + '|' + m.subject + '|' + m.term;
+                    cells[key] = { m };
+                });
+                const rows = targets.map(s => {
+                    const tr = `<tr><td><strong>${s.name}</strong></td><td>${s.admNo}</td><td>${s.class}</td>`;
+                    const termR = term || 'All';
+                    let t = tr;
+                    allSubs.forEach(sub => {
+                        const k = s.id + '|' + sub + '|' + termR;
+                        const rec = cells[s.id + '|' + sub + '|' + (term || '')] || Object.keys(cells).find(x => x === s.id + '|' + sub + '|' + term)
+                            || null;
+                        const r2 = rec ? cells[s.id + '|' + sub + '|' + term] : null;
+                        const found = marks.find(x => x.studentId === s.id && x.subject === sub && (!term || x.term === term));
+                        const mrec = found || r2?.m;
+                        if (!mrec) {
+                            t += `<td style="color:var(--text-light);font-size:11px;text-align:center;">—</td>`;
+                            return;
+                        }
+                        const mark = Number(mrec.mark) || 0;
+                        const g = (mrec.type === 'Test' && mrec.pct !== undefined && mrec.pct !== null) ? getGrade(mrec.pct) : getGrade(mark);
+                        t += `<td style="text-align:center;font-size:11px;"><strong>${mark}</strong>${mrec.outOf ? '/' + mrec.outOf : ''}${mrec.type ? ' · ' + mrec.type : ''}<br><span class="${g}">${g}</span></td>`;
+                    });
+                    t += `<td>${term || (marks[0] && marks[0].term) || ''}</td></tr>`;
+                    return t;
+                });
+                const wrap = $('allMarksTableWrap');
+                if (!wrap) return;
+                wrap.innerHTML = `<div class="table-wrap"><table class="marks-table"><thead><tr><th>Student</th><th>Adm No</th><th>Class</th>${allSubs.map(x => `<th>${esc(x)}</th>`).join('')}<th>Term</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+                $('marksPagination').innerHTML = '';
+                return;
+            }
 
             const { items, page, totalPages } = getPaginatedData(marks, MARKS_PAGE_KEY, 10);
             const wrap = $('allMarksTableWrap');
             if (!wrap) return;
             if (!items.length) { wrap.innerHTML =
-                    '<div class="empty-state"><div class="icon">📝</div><h3>No marks recorded</h3></div>'; return; }
+                    '<div class="empty-state"><div class="icon">📝</div><h3>No marks recorded</h3></div>'; $('marksPagination').innerHTML = ''; return; }
             wrap.innerHTML = `<table class="marks-table">
                 <thead><tr><th>Student</th><th>Class</th><th>Subject</th><th>Type</th><th>Term</th><th>Mark</th><th>Out Of</th><th>Grade</th><th>Remark</th><th>Entered By</th></tr></thead>
                 <tbody>
@@ -4605,15 +4657,17 @@
 
         function goToMarksPage(p) {
             if (p < 1) return;
-            const marks = [...state.marks];
+            let marks = [...state.marks];
             const cls = val('mvClass');
             const subj = val('mvSubject');
             const type = val('mvType');
-            let filtered = marks;
-            if (cls) filtered = filtered.filter(m => m.class === cls);
-            if (subj) filtered = filtered.filter(m => m.subject === subj);
-            if (type) filtered = filtered.filter(m => m.type === type);
-            const totalPages = Math.ceil(filtered.length / 10) || 1;
+            const term = val('mvTerm');
+            if (cls) marks = marks.filter(m => m.class === cls);
+            if (subj) marks = marks.filter(m => m.subject === subj);
+            if (type) marks = marks.filter(m => m.type === type);
+            if (term) marks = marks.filter(m => m.term === term);
+            marks = marks.filter(m => !m.year || m.year === state.settings.academicYear);
+            const totalPages = Math.ceil(marks.length / 10) || 1;
             if (p > totalPages) return;
             paginationState[MARKS_PAGE_KEY].page = p;
             renderAllMarks();
@@ -4827,9 +4881,16 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <select id="rpClass" onchange="loadProgressReport()">
+                    <select id="rpScope" onchange="onReportScopeChange()">
+                        <option value="class">🏫 Whole Class</option>
+                        <option value="student">👤 Individual Learner</option>
+                    </select>
+                    <select id="rpClass" onchange="onReportScopeChange()">
                         <option value="">Select Class</option>
                         ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+                    <select id="rpStudent" onchange="loadProgressReport()" style="display:none;">
+                        <option value="">Select Learner</option>
                     </select>
                     <select id="rpTerm" onchange="loadProgressReport()">
                         <option value="Term 1">Term 1</option>
@@ -4838,8 +4899,8 @@
                     </select>
                     <button class="btn btn-primary" onclick="loadProgressReport(true)">Generate Reports</button>
                 </div>
-                <div class="card" style="background:#fafbff;">
-                    <div class="card-header"><span class="card-title">💬 Class Remarks — saved per class & term</span>
+                <div id="rpClassRemarks" class="card" style="background:#fafbff;">
+                    <div class="card-header"><span class="card-title">💬 Class Remarks — saved per class &amp; term</span>
                         <button class="btn btn-primary btn-sm" onclick="saveReportRemarks()">💾 Save Remarks</button>
                     </div>
                     <div class="form-grid">
@@ -4852,9 +4913,53 @@
                         <label><input type="checkbox" id="rpSports" checked onchange="loadProgressReport(true)"> Sports remarks from extra-curricular</label>
                         <label><input type="checkbox" id="rpSubj" checked onchange="loadProgressReport(true)"> Subject teacher remarks by performance</label>
                     </div>
-</div>
                 </div>
+                <div id="rpStudentRemarks" class="card" style="background:#fafbff;display:none;">
+                    <div class="card-header"><span class="card-title">👤 Learner Remarks — saved per learner &amp; term</span>
+                        <button class="btn btn-primary btn-sm" onclick="saveStudentRemarks()">💾 Save Remarks</button>
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Class Teacher's Remark</label><textarea id="rpStudentTeacherRemark" rows="2" placeholder="e.g. Diligent and respectful..."></textarea></div>
+                        <div class="form-group"><label>Head's Remark</label><textarea id="rpStudentHeadRemark" rows="2" placeholder="e.g. Commendable progress this term..."></textarea></div>
+                        <div class="form-group"><label>Sports Director's Remark</label><textarea id="rpStudentSportsRemark" rows="2" placeholder="e.g. Represented the school in 400m..."></textarea></div>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-light);margin-top:10px;">Leave blank to use the class remark, or an auto-generated remark from performance. Toggle options are above.</p>
+                </div>
+                <div id="progressReportContainer"></div>
             </div>`;
+        }
+
+        function reportScope() { return val('rpScope') === 'student' ? 'student' : 'class'; }
+
+        function onReportScopeChange() {
+            const scope = reportScope();
+            const cls = val('rpClass');
+            const sel = $('rpStudent');
+            if (sel) {
+                const keep = sel.value;
+                const list = cls ? state.students.filter(s => s.class === cls) : [];
+                sel.innerHTML = '<option value="">Select Learner</option>' +
+                    list.map(s => `<option value="${s.id}">${s.name} (${s.admNo})</option>`).join('');
+                if (list.some(s => s.id === keep)) sel.value = keep;
+                sel.style.display = scope === 'student' ? '' : 'none';
+            }
+            const cp = $('rpClassRemarks'), sp = $('rpStudentRemarks');
+            if (cp) cp.style.display = scope === 'student' ? 'none' : '';
+            if (sp) sp.style.display = scope === 'student' ? '' : 'none';
+            loadProgressReport();
+        }
+
+        function openReportForStudent(studentId) {
+            const s = state.students.find(x => x.id === studentId);
+            if (!s) return;
+            navigateTo('reports');
+            const sc = $('rpScope'), cl = $('rpClass');
+            if (sc) sc.value = 'student';
+            if (cl) cl.value = s.class;
+            onReportScopeChange();
+            const st = $('rpStudent');
+            if (st) st.value = studentId;
+            loadProgressReport();
         }
 
         // ---------- Cloud (Supabase) account & school management ----------
@@ -5133,7 +5238,37 @@
             if ($('rpSubj')) $('rpSubj').checked = !rk || rk.useSubjectRemarks !== false;
         }
 
-        function loadReportRemarks() { fillReportRemarksPanel(); }
+        function loadReportRemarks() { fillReportRemarksPanel(); fillStudentRemarksPanel(); }
+
+        function studentReportRemarkKey(studentId, term) { return `STU_${studentId}_${term}_${state.settings.academicYear}`; }
+
+        function fillStudentRemarksPanel() {
+            const sid = val('rpStudent');
+            const term = val('rpTerm');
+            const rk = (sid && state.overallRemarks) ? state.overallRemarks[studentReportRemarkKey(sid, term)] : null;
+            if ($('rpStudentTeacherRemark')) $('rpStudentTeacherRemark').value = (rk && rk.teacherRemark) || '';
+            if ($('rpStudentHeadRemark')) $('rpStudentHeadRemark').value = (rk && rk.headRemark) || '';
+            if ($('rpStudentSportsRemark')) $('rpStudentSportsRemark').value = (rk && rk.sportsRemark) || '';
+        }
+
+        function saveStudentRemarks() {
+            const sid = val('rpStudent');
+            const term = val('rpTerm');
+            if (!sid) { toast('Select a learner first', 'error'); return; }
+            if (!state.overallRemarks) state.overallRemarks = {};
+            const s = state.students.find(x => x.id === sid);
+            const key = studentReportRemarkKey(sid, term);
+            const prev = state.overallRemarks[key] || {};
+            state.overallRemarks[key] = { ...prev, studentId: sid, class: s ? s.class : '', term,
+                teacherRemark: val('rpStudentTeacherRemark'), headRemark: val('rpStudentHeadRemark'), sportsRemark: val('rpStudentSportsRemark'),
+                useAutoRemarks: $('rpAuto') ? $('rpAuto').checked : true,
+                useSportsRemarks: $('rpSports') ? $('rpSports').checked : true,
+                useSubjectRemarks: $('rpSubj') ? $('rpSubj').checked : true,
+                savedBy: currentUser.name, savedAt: new Date().toISOString() };
+            saveState();
+            loadProgressReport(true);
+            toast(`Remarks saved for ${s ? s.name : 'learner'}!`, 'success');
+        }
 
         function saveReportRemarks() {
             const cls = val('rpClass');
@@ -5153,129 +5288,217 @@
             toast('Remarks saved!', 'success');
         }
 
-        function loadProgressReport(keepPanel) {
-            const cls = val('rpClass');
-            const term = val('rpTerm');
-            const container = $('progressReportContainer');
-            if (!cls) { container.innerHTML =
-                    '<p style="color:var(--text-light);padding:20px;">Select a class to generate reports.</p>'; return; }
-            if (!keepPanel) fillReportRemarksPanel();
-            const useAuto = $('rpAuto') ? $('rpAuto').checked : true;
-            const useSports = $('rpSports') ? $('rpSports').checked : true;
-            const useSubj = $('rpSubj') ? $('rpSubj').checked : true;
-            const tManual = val('rpTeacherRemark');
-            const hManual = val('rpHeadRemark');
-            const spManual = val('rpSportsRemark');
-            const studentsInClass = state.students.filter(s => s.class === cls);
-            const classAvgs = getClassSubjectAverages(cls, term);
-            container.innerHTML = studentsInClass.map(s => {
-                const sMarks = state.marks.filter(m => m.studentId === s.id && m.term === term);
+        // Shared report data — reads marks recorded under Marks & Grades so reports always
+        // reflect the latest entry, filtered to the current academic year (Tests feed CA on save).
+        function marksSignature() {
+            let sum = 0;
+            state.marks.forEach(m => { sum += (Number(m.mark) || 0) + (m.mark === undefined ? 0.5 : 0); });
+            return `${state.marks.length}:${sum}`;
+        }
+
+        function invalidateReportCache() { _reportCache = { key: '' }; }
+
+        function reportClassData(cls, term) {
+            const year = state.settings.academicYear;
+            const cacheKey = `${cls}|${term}|${year}|${marksSignature()}`;
+            if (_reportCache.key === cacheKey) return _reportCache;
+            const students = state.students.filter(s => s.class === cls);
+            const byStudent = {};
+            students.forEach(s => { byStudent[s.id] = {}; });
+            const names = [];
+            state.marks.forEach(m => {
+                if (m.type === 'Test' || m.term !== term || m.year !== year) return;
+                const bag = byStudent[m.studentId];
+                if (!bag) return;
+                if (!bag[m.subject]) {
+                    bag[m.subject] = { ca: null, paper: null };
+                    if (names.indexOf(m.subject) === -1) names.push(m.subject);
+                }
+                if (m.type === 'CA') bag[m.subject].ca = Number(m.mark) || 0;
+                else if (m.type === 'Paper') bag[m.subject].paper = Number(m.mark) || 0;
+            });
+            const subjects = state.subjects.filter(x => names.indexOf(x) !== -1)
+                .concat(names.filter(x => state.subjects.indexOf(x) === -1));
+            const totalsBySubject = {};
+            subjects.forEach(sub => { totalsBySubject[sub] = []; });
+            const rows = {};
+            students.forEach(s => {
+                const bag = byStudent[s.id];
+                const cells = subjects.map(sub => {
+                    const d = bag[sub];
+                    if (!d) return { subject: sub, ca: null, paper: null, total: null, grade: '—', remark: 'No marks recorded.' };
+                    const has = d.ca !== null || d.paper !== null;
+                    const total = Math.round(((d.ca || 0) + (d.paper || 0)) * 10) / 10;
+                    if (has) totalsBySubject[sub].push({ id: s.id, total });
+                    return { subject: sub, ca: d.ca, paper: d.paper, total: has ? total : null,
+                        grade: has ? getGrade(total) : '—', remark: has ? getRemark(total) : 'No marks recorded.' };
+                });
+                const scored = cells.filter(x => x.total !== null);
+                const avgMark = scored.length ? Math.round(scored.reduce((a, b) => a + b.total, 0) / scored.length * 10) / 10 : 0;
                 const sAtt = state.attendance.filter(a => a.class === cls && a.records);
                 const presentDays = sAtt.filter(a => a.records[s.id] === 'P').length;
                 const totalDays = sAtt.length;
-                const attPct = totalDays ? Math.round(presentDays / totalDays * 100) : 0;
-
-                const subjectTotals = {};
-                sMarks.forEach(m => {
-                    if (!subjectTotals[m.subject]) subjectTotals[m.subject] = { ca: 0, exam: 0 };
-                    if (m.type === 'CA') subjectTotals[m.subject].ca = Number(m.mark) || 0;
-                    else if (m.type === 'Paper') subjectTotals[m.subject].exam = Number(m.mark) || 0;
+                rows[s.id] = { student: s, term, year, subjects: cells, scoredCount: scored.length, avgMark,
+                    presentDays, totalDays, attPct: totalDays ? Math.round(presentDays / totalDays * 100) : 0 };
+            });
+            const classAvgs = {};
+            Object.keys(totalsBySubject).forEach(sub => {
+                const list = totalsBySubject[sub];
+                classAvgs[sub] = list.length ? Math.round(list.reduce((a, b) => a + b.total, 0) / list.length * 10) / 10 : null;
+            });
+            const subjectRanks = {};
+            Object.keys(totalsBySubject).forEach(sub => {
+                subjectRanks[sub] = totalsBySubject[sub].slice().sort((a, b) => b.total - a.total);
+            });
+            const overall = students.map(s => ({ id: s.id, avg: rows[s.id].avgMark }))
+                .filter(r => r.avg > 0).sort((a, b) => b.avg - a.avg);
+            const ranks = {};
+            overall.forEach((r, i) => { ranks[r.id] = { pos: i + 1, of: overall.length }; });
+            Object.keys(rows).forEach(id => {
+                const r = rows[id];
+                r.subjects.forEach(cell => {
+                    cell.classAvg = (cell.total === null || classAvgs[cell.subject] === null) ? '—' : classAvgs[cell.subject];
+                    const list = subjectRanks[cell.subject] || [];
+                    const idx = cell.total === null ? -1 : list.findIndex(x => x.id === id);
+                    cell.position = (idx >= 0 && list.length) ? `${idx + 1} of ${list.length}` : '—';
                 });
-                const subjectAverages = Object.keys(subjectTotals).map(subj => {
-                    const total = Math.round((subjectTotals[subj].ca + subjectTotals[subj].exam) * 10) / 10;
-                    return { subject: subj, ca: subjectTotals[subj].ca, exam: subjectTotals[subj].exam, classAvg: classAvgs[subj] !== undefined ? classAvgs[subj] : '-', total, grade: getGrade(total), remark: getRemark(total) };
-                });
-                const avgMark = subjectAverages.length ? Math.round(subjectAverages.reduce((sum, x) => sum + x.total, 0) / subjectAverages.length * 10) / 10 : 0;
+            });
+            _reportCache = { key: cacheKey, rows, ranks, subjectRanks, subjects, classAvgs, students };
+            return _reportCache;
+        }
 
-                const tRemark = tManual || (useAuto ? autoRemarkFor(avgMark, subjectAverages.length) : 'N/A');
-                const hRemark = hManual || (useAuto ? autoRemarkFor(avgMark, subjectAverages.length) : 'N/A');
-                const spRemark = spManual || (useSports ? sportsRemarkFor(s) : 'N/A');
+        let _reportCache = { key: '' };
 
-                return `<div class="card" style="margin-bottom:14px;">
+        function reportSubjectsFor(student, term) {
+            const d = reportClassData(student.class, term).rows[student.id];
+            return d ? d.subjects : [];
+        }
+
+        function studentReportData(student, term) {
+            const d = reportClassData(student.class, term).rows[student.id];
+            return d || { student, term, year: state.settings.academicYear, subjects: [], scoredCount: 0, avgMark: 0, presentDays: 0, totalDays: 0, attPct: 0 };
+        }
+
+        function classRankMap(cls, term) {
+            return reportClassData(cls, term).ranks;
+        }
+
+        function reportRemarksFor(data) {
+            const useAuto = $('rpAuto') ? $('rpAuto').checked : true;
+            const useSports = $('rpSports') ? $('rpSports').checked : true;
+            const useSubj = $('rpSubj') ? $('rpSubj').checked : true;
+            const cls = data.student.class;
+            const crk = state.overallRemarks ? state.overallRemarks[reportRemarkKey(cls, data.term)] : null;
+            let t = '', h = '', sp = '';
+            const sid = reportScope() === 'student' ? val('rpStudent') : '';
+            if (sid) {
+                const rk = state.overallRemarks ? state.overallRemarks[studentReportRemarkKey(sid, data.term)] : null;
+                t = (rk && rk.teacherRemark) || ''; h = (rk && rk.headRemark) || ''; sp = (rk && rk.sportsRemark) || '';
+                if (crk) { t = t || crk.teacherRemark || ''; h = h || crk.headRemark || ''; sp = sp || crk.sportsRemark || ''; }
+                t = val('rpStudentTeacherRemark') || t; h = val('rpStudentHeadRemark') || h; sp = val('rpStudentSportsRemark') || sp;
+            } else {
+                t = val('rpTeacherRemark') || (crk && crk.teacherRemark) || '';
+                h = val('rpHeadRemark') || (crk && crk.headRemark) || '';
+                sp = val('rpSportsRemark') || (crk && crk.sportsRemark) || '';
+            }
+            const auto = useAuto ? autoRemarkFor(data.avgMark, data.scoredCount) : 'N/A';
+            return { teacher: t || auto, head: h || auto, sports: sp || (useSports ? sportsRemarkFor(data.student) : 'N/A'), useSubj };
+        }
+
+        function reportCardHtml(data, rank) {
+            const s = data.student;
+            const rm = reportRemarksFor(data);
+            const isBlank = data.scoredCount === 0;
+            return `<div class="card" style="margin-bottom:14px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-                        <div><h3 style="color:var(--primary);font-size:16px;">${s.name}</h3><span style="color:var(--text-light);font-size:12px;">${s.admNo} | ${cls} | ${term}</span></div>
-                        <button class="btn btn-outline btn-sm" onclick="printSingleReport('${s.id}','${term}')">📄 Print Report</button>
-                        <button class="btn btn-success btn-sm" onclick="sendWhatsAppReport('${s.id}','${term}')">📱 WhatsApp Report</button>
+                        <div><h3 style="color:var(--primary);font-size:16px;">${s.name}</h3><span style="color:var(--text-light);font-size:12px;">${s.admNo} | ${s.class} | ${data.term} | ${data.year}${rank ? ` | Position ${rank.pos} of ${rank.of}` : ''}</span></div>
+                        <div class="btn-group">
+                            <button class="btn btn-outline btn-sm" onclick="printSingleReport('${s.id}','${data.term}')">📄 Print / PDF</button>
+                            <button class="btn btn-success btn-sm" onclick="sendWhatsAppReport('${s.id}','${data.term}')">📱 WhatsApp Report</button>
+                        </div>
                     </div>
+                    ${isBlank ? `<div class="alert alert-warning" style="margin-top:10px;">⚠️ No marks recorded for ${data.term} ${data.year}. Add them under Marks &amp; Grades → Mark Entry, then regenerate.</div>` : ''}
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0;">
                         <div style="background:#e8eaf6;border-radius:8px;padding:10px;text-align:center;">
-                            <div style="font-size:20px;font-weight:700;color:var(--primary)">${avgMark}%</div>
+                            <div style="font-size:20px;font-weight:700;color:var(--primary)">${isBlank ? '—' : data.avgMark + '%'}</div>
                             <div style="font-size:11px;color:var(--text-light)">Average Score</div>
                         </div>
                         <div style="background:#e8f5e9;border-radius:8px;padding:10px;text-align:center;">
-                            <div style="font-size:20px;font-weight:700;color:var(--success)">${attPct}%</div>
-                            <div style="font-size:11px;color:var(--text-light)">Attendance</div>
+                            <div style="font-size:20px;font-weight:700;color:var(--success)">${isBlank ? '—' : data.presentDays + '/' + data.totalDays}</div>
+                            <div style="font-size:11px;color:var(--text-light)">Attendance (${data.attPct}%)</div>
                         </div>
                         <div style="background:#fff8e1;border-radius:8px;padding:10px;text-align:center;">
-                            <div style="font-size:20px;font-weight:700;color:var(--warning)">${getGrade(avgMark)}</div>
+                            <div style="font-size:20px;font-weight:700;color:var(--warning)">${isBlank ? '—' : getGrade(data.avgMark)}</div>
                             <div style="font-size:11px;color:var(--text-light)">Overall Grade</div>
                         </div>
+                        <div style="background:#f3e5f5;border-radius:8px;padding:10px;text-align:center;">
+                            <div style="font-size:20px;font-weight:700;color:#6a1b9a">${data.scoredCount}</div>
+                            <div style="font-size:11px;color:var(--text-light)">Subjects Scored</div>
+                        </div>
                     </div>
-                    ${subjectAverages.length ? `<div class="table-wrap"><table class="marks-table"><thead><tr><th>Subject</th><th>CA Mark</th><th>Papers</th><th>Mark</th><th>Class Avg</th><th>Grade</th><th>Teacher Remark</th></tr></thead>
-                    <tbody>${subjectAverages.map(sa => {
-                        return `<tr><td>${sa.subject}</td><td>${sa.ca}</td><td>${sa.exam}</td><td>${sa.total}</td><td>${sa.classAvg}</td><td class="${sa.grade}">${sa.grade}</td><td style="font-size:11px;">${useSubj ? sa.remark : '—'}</td></tr>`;
-                    }).join('')}</tbody></table></div>` : '<p style="color:var(--text-light);font-size:13px;">No marks for this term.</p>'}
-                    <div style="margin-top:12px;background:#f8f9ff;padding:12px;border-radius:8px;">
-                        <div><strong>Class Teacher:</strong> ${tRemark}</div>
-                        <div><strong>Head:</strong> ${hRemark}</div>
-                        <div><strong>Sports Director:</strong> ${spRemark}</div>
+                    <div class="table-wrap"><table class="marks-table"><thead><tr><th>Subject</th><th>CA Mark</th><th>Papers</th><th>Total</th><th>Class Avg</th><th>Grade</th><th>Position</th><th>Teacher Remark</th></tr></thead>
+                    <tbody>${data.subjects.length ? data.subjects.map(sa => {
+                        return `<tr><td><strong>${sa.subject}</strong></td><td>${sa.ca === null ? '—' : sa.ca}</td><td>${sa.paper === null ? '—' : sa.paper}</td><td><strong>${sa.total === null ? '—' : sa.total}</strong></td><td>${sa.classAvg}</td><td class="${sa.total === null ? '' : sa.grade}">${sa.grade}</td><td>${sa.position || '—'}</td><td style="font-size:11px;">${rm.useSubj ? sa.remark : '—'}</td></tr>`;
+                    }).join('') : '<tr><td colspan="8" style="color:var(--text-light)">No subjects configured yet.</td></tr>'}</tbody></table></div>
+                    <div style="margin-top:12px;background:#f8f9ff;padding:12px;border-radius:8px;font-size:13px;">
+                        <div><strong>Class Teacher:</strong> ${rm.teacher}</div>
+                        <div><strong>Head:</strong> ${rm.head}</div>
+                        <div><strong>Sports Director:</strong> ${rm.sports}</div>
                     </div>
                     <div style="margin-top:8px;background:#e8eaf6;padding:10px 12px;border-radius:8px;font-size:13px;display:flex;gap:16px;flex-wrap:wrap;">
                         <span><strong>Next Term (${state.settings.nextTerm || ''}):</strong> Fees ${fmt(state.settings.nextTermFees || 0)}</span>
                         <span><strong>Opening Date:</strong> ${state.settings.nextTermOpens || 'TBA'}</span>
                     </div>
                 </div>`;
-            }).join('') || '<div class="empty-state"><div class="icon">📋</div><h3>No students in selected class</h3></div>';
+        }
+
+        function loadProgressReport(keepPanel) {
+            const container = $('progressReportContainer');
+            if (!container) return;
+            const cls = val('rpClass');
+            const term = val('rpTerm');
+            const scope = reportScope();
+            if (!cls) { container.innerHTML = '<p style="color:var(--text-light);padding:20px;">Select a class to generate reports.</p>'; return; }
+            if (scope === 'student' && !val('rpStudent')) { container.innerHTML = '<p style="color:var(--text-light);padding:20px;">Select a learner to generate their report.</p>'; return; }
+            if (!keepPanel) { fillReportRemarksPanel(); fillStudentRemarksPanel(); }
+            const cd = reportClassData(cls, term);
+            const targets = scope === 'student' ? cd.students.filter(s => s.id === val('rpStudent')) : cd.students;
+            container.innerHTML = targets.map(s => reportCardHtml(cd.rows[s.id], cd.ranks[s.id])).join('')
+                || '<div class="empty-state"><div class="icon">📋</div><h3>No learners found</h3></div>';
         }
 
         <!-- WhatsApp progress reports (deep-link: opens the parent's chat with a report summary) -->
         function buildWhatsAppReportText(s, term) {
-            const year = state.settings.academicYear;
-            const sMarks = state.marks.filter(m => m.studentId === s.id && m.term === term);
-            const sAtt = state.attendance.filter(a => a.class === s.class && a.records);
-            const presentDays = sAtt.filter(a => a.records[s.id] === 'P').length;
-            const totalDays = sAtt.length;
-            const attPct = totalDays ? Math.round(presentDays / totalDays * 100) : 0;
+            const data = studentReportData(s, term);
+            const year = data.year;
+            const rank = classRankMap(s.class, term)[s.id];
+            const subjectAverages = data.subjects.filter(x => x.total !== null);
 
-            const subjectTotals = {};
-            sMarks.forEach(m => {
-                if (!subjectTotals[m.subject]) subjectTotals[m.subject] = { ca: 0, exam: 0 };
-                if (m.type === 'CA') subjectTotals[m.subject].ca = Number(m.mark) || 0;
-                else if (m.type === 'Paper') subjectTotals[m.subject].exam = Number(m.mark) || 0;
-            });
-            const subjectAverages = Object.keys(subjectTotals).map(subj => {
-                const total = Math.round((subjectTotals[subj].ca + subjectTotals[subj].exam) * 10) / 10;
-                return { subject: subj, total, grade: getGrade(total), remark: getRemark(total) };
-            });
-            const avgMark = subjectAverages.length ? Math.round(subjectAverages.reduce((sum, x) => sum + x.total, 0) / subjectAverages.length * 10) / 10 : 0;
-
-            const rk = state.overallRemarks ? state.overallRemarks[reportRemarkKey(s.class, term)] : null;
-            const tR = (rk && rk.teacherRemark) || autoRemarkFor(avgMark, subjectAverages.length);
-            const hR = (rk && rk.headRemark) || autoRemarkFor(avgMark, subjectAverages.length);
+            const rm = reportRemarksFor(data);
+            const avgMark = data.avgMark;
             const subjectLines = subjectAverages.length
-                ? subjectAverages.map(x => `• ${x.subject}: ${x.total}% (${x.grade})`).join('\n')
+                ? subjectAverages.map(x => `• ${x.subject}: ${x.total}% (${x.grade}${x.position && x.position !== '—' ? ', pos ' + x.position.split(' of ')[0] : ''})`).join('\n')
                 : '• No marks recorded this term.';
             const contact = waContactLine();
 
-            return [
+            const lines = [
                 `🏫 ${state.settings.schoolName}`,
                 `${year} · ${term}`,
                 '',
                 `👤 ${s.name} (${s.admNo}) — ${s.class}`,
-                `📊 Average: ${avgMark}%  (Overall Grade: ${getGrade(avgMark)})`,
-                `✅ Attendance: ${presentDays}/${totalDays} days (${attPct}%)`,
-                '',
-                '📚 Subjects:',
-                subjectLines,
-                '',
-                `📝 Class Teacher: ${tR}`,
-                `👨‍💼 Head: ${hR}`,
+                `📊 Average: ${data.scoredCount ? avgMark + '%' : '—'}  (Overall Grade: ${data.scoredCount ? getGrade(avgMark) : '—'})`
+            ];
+            if (rank) lines.push(`🏅 Position in class: ${rank.pos} of ${rank.of}`);
+            lines.push(`✅ Attendance: ${data.presentDays}/${data.totalDays} days (${data.attPct}%)`);
+            lines.push('', '📚 Subjects:', subjectLines, '',
+                `📝 Class Teacher: ${rm.teacher}`,
+                `👨‍💼 Head: ${rm.head}`,
                 '',
                 `Next Term (${state.settings.nextTerm || 'TBA'}):`,
                 `• Fees: ${fmt(state.settings.nextTermFees || 0)}`,
-                `• Opens: ${state.settings.nextTermOpens || 'TBA'}`,
-                contact ? `\n${contact}` : '',
-            ].join('\n');
+                `• Opens: ${state.settings.nextTermOpens || 'TBA'}`);
+            if (contact) lines.push('', contact);
+            return lines.join('\n');
         }
 
         function sendWhatsAppReport(studentId, term) {
@@ -5307,25 +5530,12 @@
 
         function printSingleReport(studentId, term) {
             const s = state.students.find(x => x.id === studentId);
+            if (!s) { toast('Learner not found', 'error'); return; }
             const pg = state.settings;
-            const sMarks = state.marks.filter(m => m.studentId === studentId && m.term === term);
-            const sAtt = state.attendance.filter(a => a.records);
-            const presentDays = sAtt.filter(a => a.records[studentId] === 'P').length;
-            const totalDays = sAtt.length;
-            const attPct = totalDays ? Math.round(presentDays / totalDays * 100) : 0;
-            
-            const subjectTotals = {};
-            sMarks.forEach(m => {
-                if (!subjectTotals[m.subject]) subjectTotals[m.subject] = { ca: 0, exam: 0 };
-                if (m.type === 'CA') subjectTotals[m.subject].ca = Number(m.mark) || 0;
-                else if (m.type === 'Paper') subjectTotals[m.subject].exam = Number(m.mark) || 0;
-            });
-            const classAvgs = getClassSubjectAverages(s.class, term);
-            const subjectAverages = Object.keys(subjectTotals).map(subj => {
-                const total = Math.round((subjectTotals[subj].ca + subjectTotals[subj].exam) * 10) / 10;
-                return { subject: subj, ca: subjectTotals[subj].ca, exam: subjectTotals[subj].exam, classAvg: classAvgs[subj] !== undefined ? classAvgs[subj] : '-', total, grade: getGrade(total), remark: getRemark(total) };
-            });
-            const avgMark = subjectAverages.length ? Math.round(subjectAverages.reduce((sum, x) => sum + x.total, 0) / subjectAverages.length * 10) / 10 : 0;
+            const data = studentReportData(s, term);
+            const rank = classRankMap(s.class, term)[studentId];
+            const rm = reportRemarksFor(data);
+            const avgMark = data.avgMark;
 
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
@@ -5340,7 +5550,7 @@
             doc.text('STUDENT PROGRESS REPORT', 105, 38, { align: 'center' });
             doc.setFontSize(11);
             doc.setFont('helvetica', 'normal');
-            doc.text(`Academic Year: ${pg.academicYear} | ${term}`, 105, 46, { align: 'center' });
+            doc.text(`Academic Year: ${data.year} | ${term}`, 105, 46, { align: 'center' });
             doc.line(14, 50, 196, 50);
             let y = 58;
             doc.setFont('helvetica', 'bold');
@@ -5352,6 +5562,8 @@
             y += 7;
             doc.text(`Class: ${s.class}`, 14, y);
             doc.text(`Gender: ${s.gender}`, 110, y);
+            y += 7;
+            doc.text(`Position in Class: ${rank ? `${rank.pos} of ${rank.of}` : '—'}`, 14, y);
             y += 10;
             doc.line(14, y, 196, y);
             y += 8;
@@ -5360,40 +5572,31 @@
             y += 8;
             doc.autoTable({
                 startY: y,
-                head: [
-                    ['Subject', 'CA Mark', 'Papers', 'Mark', 'Class Avg', 'Grade', 'Teacher Remark']
-                ],
-                body: subjectAverages.map(sa => [sa.subject, sa.ca, sa.exam, sa.total, sa.classAvg, sa.grade, useSubj ? sa.remark : '-']),
+                head: [['Subject', 'CA Mark', 'Papers', 'Mark', 'Class Avg', 'Position', 'Grade', 'Teacher Remark']],
+                body: data.subjects.length
+                    ? data.subjects.map(sa => [sa.subject, sa.ca === null ? '—' : sa.ca, sa.paper === null ? '—' : sa.paper,
+                        sa.total === null ? '—' : sa.total, sa.classAvg, sa.position || '—', sa.grade,
+                        rm.useSubj ? sa.remark : '-'])
+                    : [['—', '—', '—', '—', '—', '—', '—', 'No subjects configured']],
                 styles: { fontSize: 9 },
                 headStyles: { fillColor: [26, 35, 126] }
             });
             y = doc.lastAutoTable.finalY + 12;
             doc.setFont('helvetica', 'bold');
-            doc.text(`Average Score: ${avgMark}%`, 14, y);
-            doc.text(`Overall Grade: ${getGrade(avgMark)}`, 100, y);
+            doc.text(`Average Score: ${data.scoredCount ? avgMark + '%' : '—'}`, 14, y);
+            doc.text(`Overall Grade: ${data.scoredCount ? getGrade(avgMark) : '—'}`, 100, y);
             y += 8;
-            doc.text(`Attendance: ${presentDays}/${totalDays} days (${attPct}%)`, 14, y);
-
-            const remarkKey = `${s.class}_${term}_${pg.academicYear}`;
-            const rk = state.overallRemarks ? state.overallRemarks[remarkKey] : null;
-            const live = ($('rpClass') && val('rpClass') === s.class && $('rpTeacherRemark'));
-            const pick = (id, saved) => live ? (val(id) || null) : saved;
-            const useAuto = live ? $('rpAuto').checked : (!rk || rk.useAutoRemarks !== false);
-            const useSports = live ? $('rpSports').checked : (!rk || rk.useSportsRemarks !== false);
-            const useSubj = live ? $('rpSubj').checked : (!rk || rk.useSubjectRemarks !== false);
-            const tR = pick('rpTeacherRemark', rk && rk.teacherRemark) || (useAuto ? autoRemarkFor(avgMark, subjectAverages.length) : 'N/A');
-            const hR = pick('rpHeadRemark', rk && rk.headRemark) || (useAuto ? autoRemarkFor(avgMark, subjectAverages.length) : 'N/A');
-            const spR = pick('rpSportsRemark', rk && rk.sportsRemark) || (useSports ? sportsRemarkFor(s) : 'N/A');
+            doc.text(`Attendance: ${data.presentDays}/${data.totalDays} days (${data.attPct}%)`, 14, y);
             y += 12;
             doc.setFont('helvetica', 'bold');
             doc.text('OVERALL REMARKS', 14, y);
             y += 8;
             doc.setFont('helvetica', 'normal');
-            doc.text(`Class Teacher: ${tR}`, 14, y);
+            doc.text(`Class Teacher: ${rm.teacher}`, 14, y);
             y += 7;
-            doc.text(`Head: ${hR}`, 14, y);
+            doc.text(`Head: ${rm.head}`, 14, y);
             y += 7;
-            doc.text(`Sports Director: ${spR}`, 14, y);
+            doc.text(`Sports Director: ${rm.sports}`, 14, y);
             y += 12;
             doc.setFont('helvetica', 'bold');
             doc.text(`Next Term (${pg.nextTerm || ''}) Fees: ${fmt(pg.nextTermFees || 0)}`, 14, y);
@@ -5415,8 +5618,11 @@
             const cls = val('rpClass');
             const term = val('rpTerm');
             if (!cls) { toast('Select a class first', 'error'); return; }
-            const studentsInClass = state.students.filter(s => s.class === cls);
-            studentsInClass.forEach(s => printSingleReport(s.id, term));
+            const targets = reportScope() === 'student'
+                ? state.students.filter(s => s.id === val('rpStudent'))
+                : state.students.filter(s => s.class === cls);
+            if (!targets.length) { toast('Select a learner first', 'error'); return; }
+            targets.forEach((s, i) => setTimeout(() => printSingleReport(s.id, term), i * 350));
         }
 
         // ============================================================
