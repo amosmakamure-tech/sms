@@ -5836,10 +5836,12 @@
         function openAddFee() {
             openModal('Record Fee Payment', `
             <div class="form-grid">
-                <div class="form-group"><label>Student*</label><select id="feeStudent" onchange="fillFeeClass()">
-                    <option value="">Select Student</option>
-                    ${state.students.map(s => `<option value="${s.id}" data-class="${s.class}">${s.name} (${s.admNo})</option>`).join('')}
-                </select></div>
+                <div class="form-group"><label>Student*</label><input id="feeStudentSearch" type="text" placeholder="Type name, admission # or class to search..." oninput="filterFeeStudentList()" autocomplete="off">
+                    <select id="feeStudent" onchange="fillFeeClass()" size="6" style="margin-top:6px;">
+                        <option value="">Select Student</option>
+                        ${state.students.map(s => `<option value="${s.id}" data-class="${s.class}" data-name="${(s.name||'').toLowerCase()}" data-adm="${(s.admNo||'').toLowerCase()}">${s.name} (${s.admNo}) — ${s.class}</option>`).join('')}
+                    </select></div>
+                <div class="form-group"><label>Reference / Receipt No.</label><input id="feeRef" placeholder="e.g. RCPT-001234 or deposit slip #"></div>
                 <div class="form-group"><label>Class</label><input id="feeClass" readonly></div>
                 <div class="form-group"><label>Term</label><select id="feeTerm">
                     ${['Term 1', 'Term 2', 'Term 3'].map(t => `<option ${state.settings.term === t ? 'selected' : ''}>${t}</option>`).join('')}
@@ -5864,7 +5866,19 @@
                 { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
                 { label: 'Save Payment', cls: 'btn-primary', action: 'saveFeeRecord()' }
             ]);
-            setTimeout(updateFeePayTotal, 0);
+            setTimeout(() => { updateFeePayTotal(); if ($('feeStudentSearch')) $('feeStudentSearch').focus(); }, 0);
+        }
+
+        function filterFeeStudentList() {
+            const q = (val('feeStudentSearch') || '').toLowerCase().trim();
+            const sel = $('feeStudent');
+            if (!sel) return;
+            for (let i = 1; i < sel.options.length; i++) {
+                const o = sel.options[i];
+                if (!q) { o.style.display = ''; continue; }
+                const hay = (o.textContent || '').toLowerCase() + ' ' + (o.dataset.name || '') + ' ' + (o.dataset.adm || '') + ' ' + (o.dataset.class || '');
+                o.style.display = hay.indexOf(q) >= 0 ? '' : 'none';
+            }
         }
 
         function fillFeeClass() {
@@ -5899,8 +5913,9 @@
                 <div class="form-group"><label>Learner</label><input value="${esc(f.studentName)} — ${esc(f.class)}" readonly></div>
                 <div class="form-group"><label>Term</label><input value="${f.term} ${f.year}" readonly></div>
                 <div class="form-group"><label>Date</label><input type="date" id="qpDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-group"><label>Reference / Receipt No.</label><input id="qpRef" placeholder="e.g. RCPT-001234" value="${f.ref || ''}"></div>
                 <div class="form-group"><label>Method</label><select id="qpMethod">
-                    ${['Cash', 'Bank Transfer', 'Cheque', 'Mobile Money'].map(m => `<option>${m}</option>`).join('')}
+                    ${['Cash', 'Bank Transfer', 'Cheque', 'Mobile Money'].map(m => `<option ${f.method===m?'selected':''}>${m}</option>`).join('')}
                 </select></div>
             </div>
             <h4 style="margin:14px 0 6px;color:var(--primary)">Outstanding: <span style="color:${balance > 0 ? 'var(--danger)' : 'var(--success)'}">${fmt(balance)}</span></h4>
@@ -6018,19 +6033,20 @@
                 .year === val('feeYear'));
             const bf = existing >= 0 ? (Number(state.fees[existing].bf) || 0) : (Number(s.balanceFwd) || 0);
             const status = feeStatusFor(totalPaid, totalExpected, bf);
-            const record = {
-                id: existing >= 0 ? state.fees[existing].id : 'f' + Date.now(),
-                studentId,
-                studentName: s.name,
-                class: val('feeClass') || (s.class || ''),
-                term: val('feeTerm'),
-                year: val('feeYear'),
+const record = {
+                id: id,
+                studentId: f.studentId,
+                studentName: f.studentName,
+                class: f.class,
+                term: f.term,
+                year: f.year,
                 payments,
                 billed,
                 bf,
-                date: val('feeDate'),
-                method: val('feeMethod'),
-                status
+                date: val('qpDate'),
+                method: val('qpMethod'),
+                status,
+                ref: (val('qpRef') || '').trim() || f.ref || undefined
             };
             if (existing >= 0) state.fees[existing] = record;
             else state.fees.push(record);
