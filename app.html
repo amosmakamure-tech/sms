@@ -5645,6 +5645,7 @@
                             <button class="btn btn-primary" onclick="openAddFee()">➕ Add Payment</button>
                             <button class="btn btn-outline" onclick="exportFeesCSV()">📊 CSV</button>
                             <button class="btn btn-outline" onclick="exportFeesPDF()">📄 PDF</button>
+                            <button class="btn btn-outline" onclick="syncBfToFeeRecords()" title="Copy saved B/F from students into fee records for this term/year">🔄 Sync B/F from Students</button>
                             <button class="btn btn-outline" onclick="resyncFeeIncome()" title="Rebuild Income entries from your fee records">🔄 Sync to Revenue</button>
                         </div>
                     </div>
@@ -6327,8 +6328,28 @@
                 }
             });
             saveState();
-            feesPage();
+            renderFeeTable();
             toast(`${count} fee records created for ${term} ${year} (${scopeLabel})`, 'success');
+        }
+
+        function syncBfToFeeRecords() {
+            const term = state.settings.term;
+            const year = state.settings.academicYear;
+            let updated = 0;
+            state.fees.forEach(f => {
+                if (f.term !== term || f.year !== year) return;
+                const s = state.students.find(x => x.id === f.studentId);
+                const bf = s ? (Number(s.balanceFwd) || 0) : (Number(f.bf) || 0);
+                if ((Number(f.bf) || 0) === bf) return;
+                f.bf = bf;
+                const paid = feePaidTotal(f);
+                const billed = feeBilledTotal(f);
+                f.status = feeStatusFor(paid, billed, bf);
+                postFeeToIncome(f);
+                updated++;
+            });
+            if (updated) { saveState(); renderFeeTable(); }
+            toast(updated ? `${updated} fee record(s) updated with saved B/F` : 'No B/F changes found for this term/year', updated ? 'success' : 'info');
         }
 
         function buildWAMessage(type, fee) {
