@@ -6293,10 +6293,13 @@
             let count = 0;
             pool.forEach(s => {
                 const existing = state.fees.find(f => f.studentId === s.id && f.term === term && f.year === year);
+                const bfSet = Number(s.balanceFwd) || 0;
                 if (!existing) {
                     const payments = {};
                     const billed = {};
                     state.feeComponents.forEach(fc => { payments[fc.id] = 0; billed[fc.id] = fc.amount; });
+                    const paidInit = 0;
+                    const billedInit = Object.values(billed).reduce((s, v) => s + (Number(v) || 0), 0);
                     state.fees.push({
                         id: 'f' + Date.now() + s.id,
                         studentId: s.id,
@@ -6306,12 +6309,21 @@
                         year,
                         payments,
                         billed,
-                        bf: Number(s.balanceFwd) || 0,
+                        bf: bfSet,
                         date: new Date().toISOString().split('T')[0],
                         method: 'Bulk Billing',
-                        status: 'Unpaid'
+                        status: paidInit >= billedInit + bfSet ? 'Paid' : paidInit > 0 ? 'Partial' : 'Unpaid'
                     });
                     count++;
+                } else {
+                    const oldBf = Number(existing.bf) || 0;
+                    if (oldBf !== bfSet) {
+                        existing.bf = bfSet;
+                        const paid = feePaidTotal(existing);
+                        const billed = feeBilledTotal(existing);
+                        existing.status = feeStatusFor(paid, billed, bfSet);
+                        count++;
+                    }
                 }
             });
             saveState();
