@@ -724,7 +724,9 @@
         .table-wrap {
             scrollbar-width: auto;
             scrollbar-color: var(--primary) #eef2f7;
+            scroll-behavior: smooth;
         }
+        .upgrade-list, .marks-table-wrap-scroll { scroll-behavior: smooth; }
         .modal-footer {
             padding: 14px 20px;
             border-top: 1px solid var(--border);
@@ -3107,6 +3109,8 @@
             <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-sm btn-success" onclick="sendWhatsAppToParent('${s.id}');closeModal();">📱 Send WhatsApp</button>
                 <button class="btn btn-sm btn-primary" onclick="closeModal();quickPayFeeForStudent('${s.id}')">💵 Receive Payment</button>
+                <button class="btn btn-sm btn-outline" onclick="closeModal();billStudentFromView('${s.id}')">💰 Bill Student</button>
+                <button class="btn btn-sm btn-outline" onclick="closeModal();recordMarksForStudent('${s.id}')">📝 Record Marks</button>
             </div>
             `, [
                 { label: 'Close', cls: 'btn-outline', action: 'closeModal()' },
@@ -4117,8 +4121,9 @@
         function marksPage() {
             $('pageContent').innerHTML = `
             <div class="tabs">
-                <div class="tab active" onclick="switchTab('tab-marks-entry','tabs-marks',this)">📝 Mark Entry</div>
-                <div class="tab" onclick="switchTab('tab-marks-tests','tabs-marks',this)">🧪 Tests & Exercises</div>
+                <div class="tab active" id="tabBtnEntry" onclick="switchTab('tab-marks-entry','tabs-marks',this)">📝 Mark Entry</div>
+                <div class="tab" onclick="switchTab('tab-marks-tests','tabs-marks',this)">🧪 Tests &amp; Exercises</div>
+                <div class="tab" onclick="switchTab('tab-marks-edit','tabs-marks',this)">✏️ Edit / Erase</div>
                 <div class="tab" onclick="switchTab('tab-marks-analysis','tabs-marks',this)">📊 Analysis</div>
                 <div class="tab" onclick="switchTab('tab-marks-view','tabs-marks',this)">👁️ View All Marks</div>
             </div>
@@ -4126,6 +4131,7 @@
                 <div class="card">
                     <div class="card-header"><span class="card-title">📝 Enter Student Marks</span>
                         <div class="btn-group">
+                            <input type="text" id="mSearch" placeholder="🔍 Search learner..." style="max-width:200px;" oninput="filterStudentRows(this.value,'marksEntryGrid')">
                             <button class="btn btn-primary" onclick="saveMarks()">💾 Save All Marks</button>
                             <button class="btn btn-outline" onclick="generateRemarks()">💬 Generate Remarks</button>
                         </div>
@@ -4158,6 +4164,7 @@
                     </div>
                     <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Individual teachers record each test or exercise mark during the term. These are <strong>recorded marks</strong> — they do not affect a subject's CA or final total unless marked as a <strong>Major Test</strong> (end-of-month or end-of-term tests), which then applies as the CA mark.</p>
                     <div class="filter-bar">
+                        <input type="text" id="trSearch" placeholder="🔍 Search learner in grid..." style="max-width:220px;" oninput="filterStudentRows(this.value,'testEntryGrid')">
                         <select id="trClass" onchange="loadTestRegister()">
                             <option value="">Select Class</option>
                             ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
@@ -4184,6 +4191,31 @@
                     </div>
                     <div id="testListWrap" style="margin:14px 0 6px;"></div>
                     <div id="testEntryGrid"></div>
+                </div>
+            </div>
+            <div id="tab-marks-edit" class="tab-content">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">✏️ Edit or Erase Marks — per class &amp; subject</span></div>
+                    <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Use the grid to <strong>edit existing marks or add new ones</strong> (learners not yet marked appear too — type their marks and save, which adds them to the same class list). Or erase every mark recorded for a class &amp; subject in one action.</p>
+                    <div class="filter-bar">
+                        <select id="meClass">
+                            <option value="">Select Class</option>
+                            ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                        </select>
+                        <select id="meSubject">
+                            <option value="">Select Subject</option>
+                            ${state.subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
+                        </select>
+                        <select id="meTerm">
+                            <option value="Term 1">Term 1</option>
+                            <option value="Term 2">Term 2</option>
+                            <option value="Term 3">Term 3</option>
+                        </select>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="openEditInGrid()">📝 Open grid to add / edit marks</button>
+                        <button class="btn btn-danger" onclick="eraseAllClassSubjectMarks()">🗑️ Erase ALL marks for this class &amp; subject</button>
+                    </div>
                 </div>
             </div>
             <div id="tab-marks-analysis" class="tab-content">
@@ -4222,6 +4254,7 @@
                         </div>
                     </div>
                     <div class="filter-bar">
+                        <input type="text" id="mvSearch" placeholder="🔍 Search learner by name..." style="max-width:220px;" oninput="renderAllMarks()">
                         <select id="mvClass" onchange="renderAllMarks()">
                             <option value="">All Classes</option>
                             ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
@@ -4262,7 +4295,9 @@
             const cfg = getSubjectConfig(subj);
             window._marksSubj = subj;
             if (hint) hint.innerHTML =
-                `📄 Papers: ${cfg.papers.map(p => `<strong>${p.name}</strong> (raw /${p.maxRaw} × weight ${p.weight})`).join(' + ')} → Papers (weighted) /${cfg.examMax} &nbsp;|&nbsp; CA /${cfg.caMax} &nbsp;|&nbsp; Total = CA + Papers = <strong>${cfg.caMax + cfg.examMax}%</strong> ${cfg.default ? '<span style="color:var(--warning);">(default setup — configure in Classes &amp; Subjects → Subjects)</span>' : '<span style="color:var(--text-light);">(configured ✓)</span>'}`;
+                `📄 Papers: ${cfg.papers.map(p => `<strong>${p.name}</strong> (raw /${p.maxRaw} × weight ${p.weight})`).join(' + ')} → Papers (weighted) /${cfg.examMax} &nbsp;|&nbsp; CA /${cfg.caMax} &nbsp;|&nbsp; Total = CA + Papers = <strong>${cfg.caMax + cfg.examMax}%</strong> ${cfg.default ? '<span style="color:var(--warning);">(default setup — configure in Classes &amp; Subjects → Subjects)</span>' : '<span style="color:var(--text-light);">(configured ✓)</span>'}<br>
+                <span style="color:var(--text-light);">Learners not yet marked appear with 0 — type their marks and 💾 Save to add them. Use 🔍 above to find a learner.</span>
+                <button class="btn btn-danger btn-sm" style="margin-left:8px;" onclick="eraseHere()">🗑️ Erase all marks (this class &amp; subject)</button>`;
             const studentsInClass = state.students.filter(s => s.class === cls && s.status === 'Active');
             const year = state.settings.academicYear;
             grid.innerHTML = `
@@ -4294,6 +4329,88 @@
             </table>
             </div>
             <p style="font-size:12px;color:var(--text-light);margin-top:8px;">Enter <strong>raw marks</strong> per paper — the weighted paper score is calculated automatically. Total = CA + Papers (up to ${cfg.caMax + cfg.examMax}%). Then Save All Marks.</p>`;
+        }
+
+        function filterStudentRows(q, gridId) {
+            const grid = $(gridId);
+            if (!grid) return;
+            const query = (q || '').toLowerCase().trim();
+            grid.querySelectorAll('tbody tr').forEach(tr => {
+                tr.style.display = !query || tr.textContent.toLowerCase().includes(query) ? '' : 'none';
+            });
+        }
+
+        function openEditInGrid() {
+            const c = val('meClass'), sub = val('meSubject'), t = val('meTerm');
+            if (!c || !sub) { toast('Select a class and subject first', 'error'); return; }
+            $('mClass').value = c; $('mSubject').value = sub; $('mTerm').value = t;
+            switchTab('tab-marks-entry', 'tabs-marks', document.getElementById('tabBtnEntry'));
+            loadMarksEntry();
+            toast('Grid opened — all learners (including the unmarked ones) are listed', 'success');
+        }
+
+        function eraseHere() {
+            const c = val('mClass'), sub = val('mSubject'), t = val('mTerm');
+            if (!c || !sub) { toast('Select a class and subject first', 'error'); return; }
+            const year = state.settings.academicYear;
+            const hits = state.marks.filter(m => m.class === c && m.subject === sub && m.term === t && m.year === year);
+            if (!hits.length) { toast('No marks recorded for ' + sub + ' in ' + c + ' ' + t, 'info'); return; }
+            if (!confirm(`Erase ALL ${hits.length} mark record(s) for ${sub} — ${c} (${t} ${year})? This cannot be undone.`)) return;
+            state.marks = state.marks.filter(m => !(m.class === c && m.subject === sub && m.term === t && m.year === year));
+            invalidateReportCache();
+            saveState();
+            loadMarksEntry();
+            toast(`${hits.length} mark record(s) erased for ${sub} — ${c} (${t})`, 'success');
+        }
+
+        function eraseAllClassSubjectMarks() {
+            const c = val('meClass'), sub = val('meSubject'), t = val('meTerm');
+            if (!c || !sub) { toast('Select a class and subject first', 'error'); return; }
+            const year = state.settings.academicYear;
+            const hits = state.marks.filter(m => m.class === c && m.subject === sub && m.term === t && m.year === year);
+            if (!hits.length) { toast('No marks recorded for ' + sub + ' in ' + c + ' ' + t, 'info'); return; }
+            if (!confirm(`Erase ALL ${hits.length} mark record(s) for ${sub} — ${c} (${t} ${year})? This cannot be undone.`)) return;
+            state.marks = state.marks.filter(m => !(m.class === c && m.subject === sub && m.term === t && m.year === year));
+            invalidateReportCache();
+            saveState();
+            openEditInGrid();
+            toast(`${hits.length} mark record(s) erased for ${sub} — ${c} (${t})`, 'success');
+        }
+
+        function recordMarksForStudent(studentId) {
+            const s = state.students.find(x => x.id === studentId);
+            if (!s) return;
+            navigateTo('marks');
+            setTimeout(() => {
+                if ($('mClass')) { $('mClass').value = s.class; loadMarksEntry(); }
+                const g = $('marksEntryGrid');
+                if (g) {
+                    const row = [...g.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes(s.name));
+                    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 60);
+        }
+
+        function billStudentFromView(studentId) {
+            const s = state.students.find(x => x.id === studentId);
+            if (!s) return;
+            const term = state.settings.term, year = state.settings.academicYear;
+            const existing = state.fees.find(f => f.studentId === s.id && f.term === term && f.year === year);
+            if (existing) {
+                toast('Already billed for ' + term + ' ' + year + ' — use 💵 Receive Payment for the balance', 'info');
+                quickPayFee(existing.id);
+                return;
+            }
+            const payments = {}; const billed = {};
+            state.feeComponents.forEach(fc => { payments[fc.id] = 0; billed[fc.id] = fc.amount; });
+            state.fees.push({
+                id: 'f' + Date.now() + s.id, studentId: s.id, studentName: s.name, class: s.class,
+                term, year, payments, billed, bf: Number(s.balanceFwd) || 0,
+                date: new Date().toISOString().split('T')[0], method: 'Individual Bill', status: 'Unpaid'
+            });
+            saveState();
+            viewStudent(s.id);
+            toast(`Bill created for ${s.name} — ${term} ${year}`, 'success');
         }
 
         function updateMarksDisplay(studentId) {
@@ -4589,6 +4706,9 @@
             const subj = val('mvSubject');
             const type = val('mvType');
             const term = val('mvTerm');
+            const q = (val('mvSearch') || '').toLowerCase().trim();
+            const names = q ? new Set(state.students.filter(s => s.name.toLowerCase().includes(q)).map(s => s.id)) : null;
+            if (q) marks = marks.filter(m => names.has(m.studentId) || (m.studentName || '').toLowerCase().includes(q));
             if (cls) marks = marks.filter(m => m.class === cls);
             if (subj) marks = marks.filter(m => m.subject === subj);
             if (type) marks = marks.filter(m => m.type === type);
@@ -4662,6 +4782,9 @@
             const subj = val('mvSubject');
             const type = val('mvType');
             const term = val('mvTerm');
+            const q = (val('mvSearch') || '').toLowerCase().trim();
+            const names = q ? new Set(state.students.filter(s => s.name.toLowerCase().includes(q)).map(s => s.id)) : null;
+            if (q) marks = marks.filter(m => names.has(m.studentId) || (m.studentName || '').toLowerCase().includes(q));
             if (cls) marks = marks.filter(m => m.class === cls);
             if (subj) marks = marks.filter(m => m.subject === subj);
             if (type) marks = marks.filter(m => m.type === type);
@@ -7283,17 +7406,34 @@ const record = {
             state.ministryArrears.splice(i, 1); saveState(); accountsPage();
         }
 
+        function ministryAssetAggregates() {
+            ministryInitState();
+            const reg = state.assetRegister || [];
+            if (!reg.length) return null;
+            const byClass = {};
+            reg.forEach(r => {
+                if (!byClass[r.assetClass]) byClass[r.assetClass] = { name: r.assetClass, cost: 0, accDep: 0, curDep: 0 };
+                byClass[r.assetClass].cost += Number(r.cost) || 0;
+                byClass[r.assetClass].accDep += Number(r.accDep) || 0;
+                byClass[r.assetClass].curDep += Number(r.curDep) || 0;
+            });
+            return ASSET_CLASSES.map(c => byClass[c] || null).filter(Boolean);
+        }
+
         function ministryAssetsHTML() {
             ministryInitState();
-            const cls = state.ministryAssets;
+            const auto = ministryAssetAggregates();
+            const cls = auto || state.ministryAssets;
             const t = cls.reduce((a, c) => ({ cost: a.cost + Mnum2(c.cost), dep: a.dep + Mnum2(c.accDep), cur: a.cur + Mnum2(c.curDep), nbv: a.nbv + (Mnum2(c.cost) - Mnum2(c.accDep)) }), { cost: 0, dep: 0, cur: 0, nbv: 0 });
             return `${mstHead('Asset Summary')}
             <div class="table-wrap"><table><thead><tr><th>Asset Class</th><th>Cost ($)</th><th>Accumulated Depreciation ($)</th><th>Net Book Value ($)</th><th>Current Year Depreciation ($)</th></tr></thead>
             <tbody>${cls.map(c => `<tr><td>${esc(c.name)}</td><td>${fmtPlain(c.cost)}</td><td>${fmtPlain(c.accDep)}</td><td>${fmtPlain(Mnum2(c.cost) - Mnum2(c.accDep))}</td><td>${fmtPlain(c.curDep)}</td></tr>`).join('')}
             <tr><td><strong>Total</strong></td><td><strong>${fmtPlain(t.cost)}</strong></td><td><strong>${fmtPlain(t.dep)}</strong></td><td><strong>${fmtPlain(t.nbv)}</strong></td><td><strong>${fmtPlain(t.cur)}</strong></td></tr>
             </tbody></table></div>
+            ${auto ? '' : '<p style="font-size:12px;color:var(--text-light);margin-top:6px;">Asset Register is empty — enter figures manually above, or capture assets under Assets → 🏛️ Asset Register and this summary will build itself.</p>'}
             <div class="btn-group" style="margin-top:10px;">
                 <button class="btn btn-outline btn-sm" onclick="ministryEditAssetSummary()">⚙️ Edit Asset Figures</button>
+                <button class="btn btn-outline btn-sm" onclick="navigateTo('assets');">🏛️ Asset Register</button>
                 <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('ass')">📄 PDF</button>
                 <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('ass')">📊 CSV</button>
             </div>`;
@@ -7328,6 +7468,8 @@ const record = {
             cr.push(['Direct Deposits Not Receipted', pos.deposits]);
             cr.push(['Funds Pending Transfer', pos.pending]);
             dr.push(['Receivables (levies)', rec.net]);
+            const regNBV = (state.assetRegister || []).reduce((s, r) => s + ((Number(r.cost) || 0) - (Number(r.accDep) || 0)), 0);
+            if (regNBV) dr.push(['Non-Current Assets (Net Book Value)', regNBV]);
             dr.push(['Bank', pos.banks]);
             dr.push(['Cash on Hand', pos.cash]);
             dr.push(['Prepayments', pos.prepay]);
@@ -7479,7 +7621,7 @@ const record = {
                         head2: true }; }
                 case 'arr': { return { school, Y, title: `LEVY Report on Payment Arrears as at 31 December ${Y}`, head: ['Invoice Date', 'Department', 'Funding Source', 'Exp Type', 'Supplier', 'Inv#/Ref', 'GRN', 'Amount', 'Currency', 'PFMS', 'Terms', 'Days in Arrear', 'Notes'],
                     rows: state.ministryArrears.map(r => [r.date, r.dept, r.source, r.expType, r.supplier, r.ref, r.grn, r.amount, r.currency, r.pfms, r.terms, r.days, r.notes]), head2: true }; }
-                case 'ass': { ministryInitState(); const c = state.ministryAssets;
+                case 'ass': { const auto = ministryAssetAggregates(); ministryInitState(); const c = auto || state.ministryAssets;
                     return { school, Y, title: `Asset Summary as at 31 December ${Y}`, head: ['Asset Class', 'Cost', 'Accumulated Depreciation', 'Net Book Value', 'Current Year Dep'],
                         rows: c.map(x => [x.name, x.cost, x.accDep, Mnum2(x.cost) - Mnum2(x.accDep), x.curDep]), head2: true }; }
                 case 'tb': { const { dr, cr } = ministryTBData();
@@ -8258,6 +8400,7 @@ const record = {
             $('pageContent').innerHTML = `
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('tab-assets','tabs-assets',this)">🛋️ Assets</div>
+                <div class="tab" onclick="switchTab('tab-reg','tabs-assets',this)">🏛️ Asset Register</div>
                 <div class="tab" onclick="switchTab('tab-textbooks','tabs-assets',this)">📚 Textbooks</div>
             </div>
             <div id="tab-assets" class="tab-content active">
@@ -8286,11 +8429,127 @@ const record = {
                     </div>
                 </div>
             </div>
+            <div id="tab-reg" class="tab-content">
+                ${renderAssetRegister()}
+            </div>
             <div id="tab-textbooks" class="tab-content">
                 ${renderTextbooksTab()}
             </div>`;
             renderTextbooksList();
             renderTextbookIssues();
+        }
+
+        // ---------- Asset Register (Ministry headings; feeds Ministry Asset Summary + Trial Balance) ----------
+        const ASSET_CLASSES = ['Land', 'Buildings', 'Infrastructures', 'Land Improvements', 'Transport',
+            'Machinery & Equipment', 'ICT', 'Furniture, Fixtures & Fittings', 'Biological Resources',
+            'Military & Security', 'Heritage Assets'];
+
+        function renderAssetRegister() {
+            if (!state.assetRegister) state.assetRegister = [];
+            const rows = state.assetRegister;
+            const nbvOf = r => ((Number(r.cost) || 0) - (Number(r.accDep) || 0));
+            const tCost = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0);
+            const tDep = rows.reduce((s, r) => s + (Number(r.accDep) || 0), 0);
+            return `<div class="card">
+                <div class="card-header"><span class="card-title">🏛️ Asset Register (${rows.length} assets — NBV ${fmt(tCost - tDep)})</span>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="openAddRegisterAsset()">➕ Add Asset</button>
+                        <button class="btn btn-outline" onclick="exportAssetRegisterCSV()">📊 CSV</button>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">Headings per Ministry schedule: Name, Asset Class, Unique Asset Number, Responsible Officer, Valuation/ Acquisition Date, Location and Net Book Value. Totals feed the Ministry Asset Summary and Trial Balance (Accounting Reports).</p>
+                <div class="filter-bar">
+                    <input type="text" placeholder="🔍 Search name, class, officer, location or asset no..." id="arSearch" oninput="renderAssetRegisterTable()">
+                </div>
+                <div class="table-wrap" id="arTableWrap"></div>
+            </div>`;
+        }
+
+        function renderAssetRegisterTable() {
+            const wrap = $('arTableWrap');
+            if (!wrap) return;
+            if (!state.assetRegister) state.assetRegister = [];
+            const q = (val('arSearch') || '').toLowerCase().trim();
+            let rows = state.assetRegister;
+            if (q) rows = rows.filter(r => [r.name, r.assetClass, r.assetNo, r.officer, r.date, r.location].join(' ').toLowerCase().includes(q));
+            if (!rows.length) { wrap.innerHTML = '<div class="empty-state"><div class="icon">🏛️</div><h3>No assets on register</h3></div>'; return; }
+            wrap.innerHTML = `<table><thead><tr><th>Name of Asset</th><th>Asset Class</th><th>Unique Asset No</th><th>Responsible Officer</th><th>Valuation / Acquisition Date</th><th>Location</th><th>Cost ($)</th><th>Acc. Dep ($)</th><th>Net Book Value ($)</th><th>Actions</th></tr></thead>
+            <tbody>${rows.map(r => {
+                const nbv = (Number(r.cost) || 0) - (Number(r.accDep) || 0);
+                return `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.assetClass)}</td><td>${esc(r.assetNo)}</td><td>${esc(r.officer || 'N/A')}</td>
+                <td>${esc(r.date || '')}</td><td>${esc(r.location || 'N/A')}</td><td>${fmt(r.cost || 0)}</td><td>${fmt(r.accDep || 0)}</td>
+                <td style="color:${nbv > 0 ? 'var(--primary)' : 'var(--text-light)'}"><strong>${fmt(nbv)}</strong></td>
+                <td><button class="btn btn-sm btn-primary" onclick="editRegisterAsset('${r.id}')">✏️</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteRegisterAsset('${r.id}')">🗑️</button></td></tr>`;
+            }).join('')}</tbody></table>`;
+        }
+
+        function nextRegisterAssetNo() {
+            const nums = (state.assetRegister || []).map(r => { const m = String(r.assetNo || '').match(/(\d+)$/); return m ? parseInt(m[1]) : 0; });
+            const next = Math.max(0, ...nums) + 1;
+            return 'NMA-' + String(next).padStart(4, '0');
+        }
+
+        function registerAssetForm(r) {
+            return `<div class="form-grid">
+                <div class="form-group"><label>Name of Asset*</label><input id="raName" value="${esc(r ? r.name : '')}" placeholder="e.g. 25kVA Solar System"></div>
+                <div class="form-group"><label>Asset Class*</label><select id="raClass">${ASSET_CLASSES.map(c => `<option ${r && r.assetClass === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+                <div class="form-group"><label>Unique Asset Number*</label><input id="raNo" value="${esc(r ? r.assetNo : nextRegisterAssetNo())}"></div>
+                <div class="form-group"><label>Responsible Officer</label><input id="raOfficer" value="${esc(r ? r.officer : '')}" placeholder="e.g. Deputy Head"></div>
+                <div class="form-group"><label>Valuation / Date of Acquisition</label><input type="date" id="raDate" value="${esc(r ? r.date : new Date().toISOString().split('T')[0])}"></div>
+                <div class="form-group"><label>Location</label><input id="raLocation" value="${esc(r ? r.location : '')}" placeholder="e.g. Main Hall, Ablution Block"></div>
+                <div class="form-group"><label>Cost / Valuation ($)</label><input type="number" id="raCost" value="${r ? r.cost : ''}" min="0" step="0.01"></div>
+                <div class="form-group"><label>Accumulated Depreciation ($)</label><input type="number" id="raDep" value="${r ? r.accDep : ''}" min="0" step="0.01"></div>
+                <div class="form-group"><label>Current Year Depreciation ($)</label><input type="number" id="raCur" value="${r ? (r.curDep || 0) : ''}" min="0" step="0.01"></div>
+            </div>
+            <p style="font-size:12px;color:var(--text-light);">Net Book Value = Cost − Accumulated Depreciation (computed automatically).</p>`;
+        }
+
+        function openAddRegisterAsset() {
+            openModal('Add Asset to Register', registerAssetForm(null), [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save Asset', cls: 'btn-primary', action: 'saveRegisterAsset()' }]);
+        }
+
+        function editRegisterAsset(id) {
+            const r = (state.assetRegister || []).find(x => x.id === id);
+            if (!r) return;
+            openModal('Edit Registered Asset', registerAssetForm(r), [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Update', cls: 'btn-primary', action: `saveRegisterAsset('${id}')` }]);
+        }
+
+        function saveRegisterAsset(id) {
+            const name = val('raName').trim();
+            const no = val('raNo').trim();
+            if (!name || !no) { toast('Name and unique asset number are required', 'error'); return; }
+            const rec = {
+                id: id || ('ar' + Date.now()), name, assetClass: val('raClass'), assetNo: no,
+                officer: val('raOfficer'), date: val('raDate'), location: val('raLocation'),
+                cost: parseFloat(val('raCost')) || 0, accDep: parseFloat(val('raDep')) || 0, curDep: parseFloat(val('raCur')) || 0
+            };
+            if (!state.assetRegister) state.assetRegister = [];
+            if (id) {
+                const idx = state.assetRegister.findIndex(x => x.id === id);
+                state.assetRegister[idx] = rec;
+            } else {
+                if (state.assetRegister.some(x => x.assetNo === no)) { toast('That asset number already exists — use a unique number', 'error'); return; }
+                state.assetRegister.push(rec);
+            }
+            saveState(); closeModal(); assetsPage(); toast('Asset saved to register', 'success');
+        }
+
+        function deleteRegisterAsset(id) {
+            const r = (state.assetRegister || []).find(x => x.id === id);
+            if (!r) return;
+            if (!confirm(`Remove "${r.name}" (${r.assetNo}) from the register?`)) return;
+            state.assetRegister = state.assetRegister.filter(x => x.id !== id);
+            saveState(); assetsPage();
+        }
+
+        function exportAssetRegisterCSV() {
+            downloadCSV('AssetRegister', ['Name of Asset', 'Asset Class', 'Unique Asset No', 'Responsible Officer', 'Valuation/Acquisition Date', 'Location', 'Cost', 'Accumulated Dep', 'Current Year Dep', 'Net Book Value'],
+                (state.assetRegister || []).map(r => [r.name, r.assetClass, r.assetNo, r.officer, r.date, r.location, r.cost, r.accDep, r.curDep || 0, (Number(r.cost) || 0) - (Number(r.accDep) || 0)]));
         }
 
         // ---------- Textbooks (acquired, issued to learners, returned) ----------
