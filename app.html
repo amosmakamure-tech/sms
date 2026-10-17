@@ -6821,12 +6821,16 @@ const record = {
         function accountsPage() {
             $('pageContent').innerHTML = `
             <div class="tabs">
-                <div class="tab active" onclick="switchTab('tab-ie','tabs-acc',this)">📊 Income & Expenditure</div>
+                <div class="tab active" onclick="switchTab('tab-ie','tabs-acc',this)">📊 Income &amp; Expenditure</div>
+                <div class="tab" onclick="switchTab('tab-ministry','tabs-acc',this)">🏛️ Ministry Statements (SDC Levy)</div>
                 <div class="tab" onclick="switchTab('tab-bank','tabs-acc',this)">🏦 Bank Reconciliation</div>
                 <div class="tab" onclick="switchTab('tab-charts','tabs-acc',this)">📈 Charts</div>
             </div>
             <div id="tab-ie" class="tab-content active">
                 ${renderIEAccount()}
+            </div>
+            <div id="tab-ministry" class="tab-content">
+                ${ministryReportsPage()}
             </div>
             <div id="tab-bank" class="tab-content">
                 ${renderBankRecon()}
@@ -6904,6 +6908,621 @@ const record = {
                     <span style="font-weight:700;font-size:22px;color:${surplus>=0?'var(--success)':'var(--danger)'}">${fmt(Math.abs(surplus))}</span>
                 </div>
             </div>`;
+        }
+
+        // ============================================================
+        //  MINISTRY (SDC LEVY) FINANCIAL STATEMENTS — per SDC template schedule
+        //  Fin Performance · Fin Position · Net Assets · Cash Flows · Budget vs Actual
+        //  Debtors List · Payment Arrears (PFMS) · Asset Summary · Trial Balance · Notes
+        // ============================================================
+        function ministryInitState() {
+            if (!state.ministryVals) state.ministryVals = {};
+            if (!state.ministryArrears) state.ministryArrears = [];
+            if (!state.ministryAssets) state.ministryAssets = [
+                { name: 'Land', cost: 0, accDep: 0, curDep: 0 }, { name: 'Buildings', cost: 0, accDep: 0, curDep: 0 },
+                { name: 'Infrastructures', cost: 0, accDep: 0, curDep: 0 }, { name: 'Land Improvements', cost: 0, accDep: 0, curDep: 0 },
+                { name: 'Transport', cost: 0, accDep: 0, curDep: 0 }, { name: 'Machinery & Equipment', cost: 0, accDep: 0, curDep: 0 },
+                { name: 'ICT', cost: 0, accDep: 0, curDep: 0 }, { name: 'Furniture, Fixtures & Fittings', cost: 0, accDep: 0, curDep: 0 },
+                { name: 'Biological Resources', cost: 0, accDep: 0, curDep: 0 }, { name: 'Military & Security', cost: 0, accDep: 0, curDep: 0 },
+                { name: 'Heritage Assets', cost: 0, accDep: 0, curDep: 0 }];
+        }
+
+        function minYear() { const v = (state.ministryVals || {}).mYear; return v && String(v).trim() ? String(v).trim() : String(state.settings.academicYear); }
+        function Mval(id) { const v = (state.ministryVals || {})[id]; return v === undefined || v === null ? '' : String(v); }
+        function Mnum(id, def) { const v = parseFloat((state.ministryVals || {})[id]); return isNaN(v) ? (def === undefined ? 0 : def) : v; }
+
+        function yearRecords(arr) {
+            const Y = minYear();
+            return (arr || []).filter(r => String((r.date || '').slice(0, 4)) === Y);
+        }
+
+        // Auto revenue split using income-category keywords (fee-linked income uses the component name)
+        function ministryRevenue() {
+            const inc = yearRecords(state.income);
+            const res = { levies: 0, donations: 0, interest: 0, other: 0 };
+            inc.forEach(i => incomeBreakdownOf(i).forEach(b => {
+                const cat = state.incomeCategories.find(c => c.id === b.categoryId);
+                const name = cat ? cat.name : (i.description || '');
+                const amt = Number(b.amount) || 0;
+                if (/donat/i.test(name)) res.donations += amt;
+                else if (/interest/i.test(name)) res.interest += amt;
+                else if (/levy|tuition|fee|board|special/i.test(name)) res.levies += amt;
+                else res.other += amt;
+            }));
+            res.total = res.levies + res.donations + res.interest + res.other;
+            return res;
+        }
+
+        // Auto expenditure split using expenditure-category keywords per the NOTES schedule
+        const MINISTRY_EXP_GROUPS = [
+            ['Salaries', /salari|wage|nssa|nec|paye|allowance|leave|overtime|feeding|cook|payroll/i],
+            ['Teaching and Learning Materials', /stationer|textbook|science|practical|exam|e-?learning|licen[cs]e|teaching|learning|ttimetable|timetable/i],
+            ['Communication Services', /airtime|telephone|telone|internet|starlink|newspaper|postal|box|bag|teltrack|communication/i],
+            ['Utilities and Other Services', /electric|zetdc|fuel|heating|water|rate/i],
+            ['Financial Transaction Costs', /bank charge/i],
+            ['Institutional Provisions', /uniform|staff tea|refreshment|provision/i],
+            ['Computer Consumables', /computer|printing|servic/i],
+            ['Repairs and Maintenance', /repair|maintenance|grounds/i],
+            ['Fumigation and Cleaning Materials', /clean|fumigat|ppe|hygiene/i],
+            ['Administrative Costs', /travel|subsistence|sign ?post|administrat/i],
+            ['Sports, Arts and Culture Expenses', /sport|arts|culture/i],
+            ['Affiliations and Subscriptions', /affiliat|nash|bspz|dassaf|zsda|pastel|belina|subscription/i],
+            ['Staff Development', /workshop|trip allowance|staff develop/i],
+            ['Audits and Consultancy', /audit|consultanc|legal/i],
+            ['Fuels, Oils and Lubricants', /oil|lubricant/i],
+            ['Motor Vehicle Expense', /vehicle|toll|bus f|busfare|parking|motor/i],
+            ['Fundraisings, Functions and Events', /fundrais|speech|prize|investiture|function|event/i],
+            ['Security Services', /security|cctv|alarm|biometric/i],
+            ['Donations', /donat/i]
+        ];
+        function ministryExpenditure() {
+            const exp = yearRecords(state.expenditure);
+            const res = { groups: {}, employment: 0, goodsServices: 0, other: 0 };
+            exp.forEach(e => {
+                const cat = state.expenditureCategories.find(c => c.id === e.categoryId);
+                const name = cat ? cat.name : (e.description || '');
+                const amt = Number(e.amount) || 0;
+                let g = null;
+                for (const [label, re] of MINISTRY_EXP_GROUPS) {
+                    if (re.test(name)) { g = label; break; }
+                }
+                if (g === null) { res.other += amt; return; }
+                res.groups[g] = (res.groups[g] || 0) + amt;
+                if (g === 'Salaries') res.employment += amt; else res.goodsServices += amt;
+            });
+            res.total = res.employment + res.goodsServices + res.other;
+            return res;
+        }
+
+        // Levies calculations (per term) split from fee components: Regular / Boarding / Special
+        function ministryLevyCalcs() {
+            const Y = minYear();
+            const recs = state.fees.filter(f => String(f.year) === Y);
+            const out = { levy: [0, 0, 0], boarding: [0, 0, 0], special: [0, 0, 0] };
+            recs.forEach(f => (state.feeComponents).forEach(fc => {
+                const b = feeBilledOf(f, fc.id, fc.amount);
+                const t = { 'Term 1': 0, 'Term 2': 1, 'Term 3': 2 }[f.term];
+                if (t === undefined) return;
+                if (/special/i.test(fc.name)) out.special[t] += b;
+                else if (/board(er|ing)/i.test(fc.name)) out.boarding[t] += b;
+                else out.levy[t] += b;
+            }));
+            out.levyT = out.levy.reduce((a, b) => a + b, 0);
+            out.boardingT = out.boarding.reduce((a, b) => a + b, 0);
+            out.specialT = out.special.reduce((a, b) => a + b, 0);
+            return out;
+        }
+
+        function ministryReceivables() {
+            const Y = minYear();
+            let opening = 0, current = 0;
+            state.fees.filter(f => String(f.year) === Y).forEach(f => {
+                opening += Math.max(0, Number(f.bf) || 0);
+                current += Math.max(0, feeBilledTotal(f) - feePaidTotal(f));
+            });
+            const recovered = Mnum('mRecRecovered'), writtenOff = Mnum('mRecWrittenOff');
+            return { opening, current, recovered, writtenOff, net: Math.max(0, opening + current - recovered - writtenOff) };
+        }
+
+        function ministryPosition() {
+            const banks = Mnum('mBank1') + Mnum('mBank2') + Mnum('mBank3');
+            const cash = Mnum('mCash');
+            const receivables = ministryReceivables().net;
+            const prepay = Mnum('mPrepay'), inventory = Mnum('mInventory');
+            const assets = banks + cash + receivables + prepay + inventory;
+            const payables = Mnum('mPayZETDC') + Mnum('mPayGSRDC') + Mnum('mPayTelone') + Mnum('mPayOther');
+            const liab = payables + Mnum('mDeposits') + Mnum('mPendingTransfer') + Mnum('mAdvance');
+            const surplus = (ministryRevenue().total) - (ministryExpenditure().total);
+            const equity = Mnum('mOpeningFund') + surplus;
+            return { banks, cash, receivables, prepay, inventory, assets, payables, deposits: Mnum('mDeposits'),
+                pending: Mnum('mPendingTransfer'), advance: Mnum('mAdvance'), liab, surplus, openingFund: Mnum('mOpeningFund'), equity };
+        }
+
+        function ministryDebtors() {
+            const Y = minYear();
+            const rows = state.students.filter(s => s.status === 'Active').map(s => {
+                const recs = state.fees.filter(f => f.studentId === s.id && String(f.year) === Y);
+                const arrears = recs.reduce((a, f) => a + Math.max(0, Number(f.bf) || 0), 0);
+                const current = recs.reduce((a, f) => a + Math.max(0, feeBilledTotal(f) - feePaidTotal(f)), 0);
+                const total = arrears + current;
+                return { name: s.name, admNo: s.admNo, cls: s.class, arrears, current, total };
+            }).filter(r => r.total > 0).sort((a, b) => a.name.localeCompare(b.name));
+            return rows;
+        }
+
+        function fmtPlain(x) { return Number(x || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+        function ministryReportsPage() {
+            ministryInitState();
+            const Y = minYear();
+            return `
+            <div class="card">
+                <div class="card-header"><span class="card-title">🏛️ Ministry (SDC Levy) Financial Statements</span>
+                    <div class="btn-group">
+                        <span style="font-size:13px;color:var(--text-light);align-self:center;">Statement Year</span>
+                        <input type="text" id="mYearInput" value="${Y}" style="width:80px;" onchange="state.ministryVals.mYear=this.value.trim()||state.settings.academicYear;saveState();accountsPage();">
+                        <button class="btn btn-outline" onclick="exportMinistryAllPDF()">📄 Export All PDF</button>
+                    </div>
+                </div>
+                <div class="tabs" style="margin-top:10px;">
+                    <div class="tab active" onclick="switchTab('tab-mfperf','tabs-ministry',this)">📊 Fin Performance</div>
+                    <div class="tab" onclick="switchTab('tab-mfpos','tabs-ministry',this)">🏦 Fin Position</div>
+                    <div class="tab" onclick="switchTab('tab-mfnet','tabs-ministry',this)">🔄 Net Assets</div>
+                    <div class="tab" onclick="switchTab('tab-mfcash','tabs-ministry',this)">💧 Cash Flows</div>
+                    <div class="tab" onclick="switchTab('tab-mfbud','tabs-ministry',this)">📋 Budget vs Actual</div>
+                    <div class="tab" onclick="switchTab('tab-mfdeb','tabs-ministry',this)">👥 Debtors</div>
+                    <div class="tab" onclick="switchTab('tab-mfarr','tabs-ministry',this)">⏳ Payment Arrears</div>
+                    <div class="tab" onclick="switchTab('tab-mfass','tabs-ministry',this)">🏗️ Asset Summary</div>
+                    <div class="tab" onclick="switchTab('tab-mftb','tabs-ministry',this)">🧾 Trial Balance</div>
+                    <div class="tab" onclick="switchTab('tab-mfnotes','tabs-ministry',this)">📝 Notes</div>
+                </div>
+                <div id="tab-mfperf" class="tab-content active">${ministryPerfHTML()}</div>
+                <div id="tab-mfpos" class="tab-content">${ministryPosHTML()}</div>
+                <div id="tab-mfnet" class="tab-content">${ministryNetAssetsHTML()}</div>
+                <div id="tab-mfcash" class="tab-content">${ministryCashHTML()}</div>
+                <div id="tab-mfbud" class="tab-content">${ministryBudgetHTML()}</div>
+                <div id="tab-mfdeb" class="tab-content">${ministryDebtorsHTML()}</div>
+                <div id="tab-mfarr" class="tab-content">${ministryArrearsHTML()}</div>
+                <div id="tab-mfass" class="tab-content">${ministryAssetsHTML()}</div>
+                <div id="tab-mftb" class="tab-content">${ministryTBHTML()}</div>
+                <div id="tab-mfnotes" class="tab-content">${ministryNotesHTML()}</div>
+            </div>`;
+        }
+
+        function mstHead(title) {
+            const pg = state.settings;
+            return `<div style="text-align:center;margin-bottom:10px;">
+                <div style="font-weight:700;">Ministry of Primary and Secondary Education</div>
+                <div style="font-size:12px;color:var(--text-light);">${esc(pg.province || 'Name of Province')} | ${esc(pg.district || 'Name of District')} | <strong>${esc(pg.schoolName)}</strong></div>
+                <div>${esc(title)}</div></div>`;
+        }
+
+        function ministryPerfData() {
+            const rev = ministryRevenue(), exp = ministryExpenditure();
+            return { rev, exp, surplus: rev.total - exp.total };
+        }
+
+        function ministryPerfHTML() {
+            const { rev, exp, surplus } = ministryPerfData();
+            return `${mstHead(`Statement of Financial Performance for the year ended 31 December ${minYear()}`)}
+            <table><thead><tr><th></th><th style="width:180px;">Amount ($)</th></tr></thead>
+            <tbody>
+                <tr><td colspan="2"><strong>Revenue</strong></td></tr>
+                <tr><td>Revenue From Transactions without Binding Arrangements</td><td></td></tr>
+                <tr><td style="padding-left:24px;">Levies, Subscriptions</td><td>${fmtPlain(rev.levies)}</td></tr>
+                <tr><td style="padding-left:24px;">Donations</td><td>${fmtPlain(rev.donations)}</td></tr>
+                <tr><td style="padding-left:24px;">Other Revenue</td><td></td></tr>
+                <tr><td style="padding-left:40px;">Other Income${rev.interest ? ' (incl. Bank Interest ' + fmtPlain(rev.interest) + ')' : ''}</td><td>${fmtPlain(rev.other)}</td></tr>
+                <tr><td><strong>Total Income</strong></td><td><strong>${fmtPlain(rev.total)}</strong></td></tr>
+                <tr><td><strong>Expenses</strong></td><td></td></tr>
+                <tr><td style="padding-left:24px;">Employment Costs</td><td>${fmtPlain(exp.employment)}</td></tr>
+                <tr><td style="padding-left:24px;">Use of Goods and Services</td><td>${fmtPlain(exp.goodsServices)}</td></tr>
+                <tr><td style="padding-left:24px;">Other Expenses</td><td>${fmtPlain(exp.other)}</td></tr>
+                <tr><td><strong>Total Expenses</strong></td><td><strong>${fmtPlain(exp.total)}</strong></td></tr>
+                <tr><td><strong>${surplus >= 0 ? 'Surplus' : 'Deficit'}</strong></td><td><strong>${fmtPlain(Math.abs(surplus))}</strong></td></tr>
+            </tbody></table>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('perf')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('perf')">📊 CSV</button>
+                <span style="font-size:12px;color:var(--text-light);align-self:center;">Auto-filled from Income &amp; Expenditure records dated ${minYear()}.</span>
+            </div>`;
+        }
+
+        function ministryPosHTML() {
+            const p = ministryPosition();
+            return `${mstHead(`Statement of Financial Position as at 31 December ${minYear()}`)}
+            <table><thead><tr><th></th><th style="width:180px;">31 Dec ${minYear()} ($)</th></tr></thead>
+            <tbody>
+                <tr><td><strong>Assets</strong></td><td></td></tr>
+                <tr><td>Current Assets</td><td></td></tr>
+                <tr><td style="padding-left:24px;">Bank ${fmtPlain(p.banks) !== '0.00' ? '(CBZ/AFC/other, editable below)' : ''}</td><td>${fmtPlain(p.banks)}</td></tr>
+                <tr><td style="padding-left:24px;">Cash on Hand</td><td>${fmtPlain(p.cash)}</td></tr>
+                <tr><td style="padding-left:24px;">Receivables (levies)</td><td>${fmtPlain(p.receivables)}</td></tr>
+                <tr><td style="padding-left:24px;">Prepayments</td><td>${fmtPlain(p.prepay)}</td></tr>
+                <tr><td style="padding-left:24px;">Inventories</td><td>${fmtPlain(p.inventory)}</td></tr>
+                <tr><td><strong>Total Assets</strong></td><td><strong>${fmtPlain(p.assets)}</strong></td></tr>
+                <tr><td><strong>Liabilities</strong></td><td></td></tr>
+                <tr><td style="padding-left:24px;">Payables and Accruals (ZETDC/GSRDC/Telone/Other)</td><td>${fmtPlain(p.payables)}</td></tr>
+                <tr><td style="padding-left:24px;">Direct Deposits Not Receipted</td><td>${fmtPlain(p.deposits)}</td></tr>
+                <tr><td style="padding-left:24px;">Funds Pending Transfer</td><td>${fmtPlain(p.pending)}</td></tr>
+                <tr><td style="padding-left:24px;">SDC Levies Paid in Advance</td><td>${fmtPlain(p.advance)}</td></tr>
+                <tr><td><strong>Total Liabilities</strong></td><td><strong>${fmtPlain(p.liab)}</strong></td></tr>
+                <tr><td>Net Assets/Equity (Opening ${fmtPlain(p.openingFund)} + Surplus ${fmtPlain(p.surplus)})</td><td><strong>${fmtPlain(p.equity)}</strong></td></tr>
+            </tbody></table>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="ministryEditInputs('mpos')">⚙️ Edit Bank/Cash/Payables Inputs</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('pos')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('pos')">📊 CSV</button>
+            </div>`;
+        }
+
+        function ministryNetAssetsHTML() {
+            const p = ministryPosition();
+            return `${mstHead(`Statement of Changes in Net Assets for the year ended 31 December ${minYear()}`)}
+            <table><thead><tr><th></th><th style="width:180px;">Accumulated Surplus/Deficit ($)</th></tr></thead>
+            <tbody>
+                <tr><td>Opening Balance (01 January ${minYear()})</td><td>${fmtPlain(p.openingFund)}</td></tr>
+                <tr><td>Surplus (or Deficit) for the period</td><td>${fmtPlain(p.surplus)}</td></tr>
+                <tr><td><strong>Closing Balance (31 December ${minYear()})</strong></td><td><strong>${fmtPlain(p.equity)}</strong></td></tr>
+            </tbody></table>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="ministryEditInputs('mpos')">⚙️ Edit Opening Balance</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('net')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('net')">📊 CSV</button>
+            </div>`;
+        }
+
+        function ministryCashHTML() {
+            const surplus = ministryPerfData().surplus;
+            const recDelta = Mnum('mcfRecDelta'), payDelta = Mnum('mcfPayDelta');
+            const investing = Mnum('mcfInvesting'), financing = Mnum('mcfFinancing'), fx = Mnum('mcfFx');
+            const opening = Mnum('mcfOpening');
+            const net = surplus + recDelta + payDelta + investing + financing + fx;
+            return `${mstHead(`Statement of Cash Flows for the year ended 31 December ${minYear()}`)}
+            <table><thead><tr><th></th><th style="width:180px;">$</th></tr></thead>
+            <tbody>
+                <tr><td>Surplus/Deficit</td><td>${fmtPlain(surplus)}</td></tr>
+                <tr><td>Increase in receivables</td><td>${fmtPlain(recDelta)}</td></tr>
+                <tr><td>Increase in payables</td><td>${fmtPlain(payDelta)}</td></tr>
+                <tr><td>Net Cash Flows from Operating Activities</td><td>${fmtPlain(surplus + recDelta + payDelta)}</td></tr>
+                <tr><td>Net Cash Flows from Investing Activities</td><td>${fmtPlain(investing)}</td></tr>
+                <tr><td>Net Cash Flows from Financing Activities</td><td>${fmtPlain(financing)}</td></tr>
+                <tr><td>Net Effect of Foreign Exchange Rates</td><td>${fmtPlain(fx)}</td></tr>
+                <tr><td><strong>Net Increase (Decrease) in Cash</strong></td><td><strong>${fmtPlain(net)}</strong></td></tr>
+                <tr><td>Cash and Cash Equivalents at beginning of year</td><td>${fmtPlain(opening)}</td></tr>
+                <tr><td><strong>Cash and Cash Equivalents at end of year</strong></td><td><strong>${fmtPlain(opening + net)}</strong></td></tr>
+            </tbody></table>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="ministryEditInputs('mcfg')">⚙️ Edit Cash Flow Inputs</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('cash')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('cash')">📊 CSV</button>
+            </div>`;
+        }
+
+        function ministryBudgetHTML() {
+            const rev = ministryRevenue(), exp = ministryExpenditure();
+            const rows = [
+                { label: 'Revenue', o: 'mBudORev', f: 'mBudFRev', a: rev.total, kind: 'rev' },
+                { label: 'Expenses', o: 'mBudOExp', f: 'mBudFExp', a: exp.total, kind: 'exp' }];
+            const oRev = Mnum('mBudORev'), fRev = Mnum('mBudFRev'), oExp = Mnum('mBudOExp'), fExp = Mnum('mBudFExp');
+            return `${mstHead(`Statement of Comparison of Budget and Actual Amounts for the year ended 31 December ${minYear()}`)}
+            <table><thead><tr><th></th><th>Original Budget ($)</th><th>Final Budget ($)</th><th>Actual ($)</th><th>Difference ($)</th></tr></thead>
+            <tbody>
+                <tr><td>Revenue — Levies, Donations, Other</td><td>${fmtPlain(oRev)}</td><td>${fmtPlain(fRev)}</td><td>${fmtPlain(rev.total)}</td><td>${fmtPlain(fRev - rev.total)}</td></tr>
+                <tr><td>Expenses — Employment, Goods &amp; Services, Other</td><td>${fmtPlain(oExp)}</td><td>${fmtPlain(fExp)}</td><td>${fmtPlain(exp.total)}</td><td>${fmtPlain(fExp - exp.total)}</td></tr>
+                <tr><td><strong>Total Surplus/Deficit for the Year</strong></td><td><strong>${fmtPlain(oRev - oExp)}</strong></td><td><strong>${fmtPlain(fRev - fExp)}</strong></td><td><strong>${fmtPlain(rev.total - exp.total)}</strong></td><td><strong>${fmtPlain((fRev - fExp) - (rev.total - exp.total))}</strong></td></tr>
+            </tbody></table>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="ministryEditInputs('mbud')">⚙️ Edit Budgets</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('bud')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('bud')">📊 CSV</button>
+            </div>`;
+        }
+
+        function ministryDebtorsHTML() {
+            ministryInitState();
+            const rows = ministryDebtors();
+            const tA = rows.reduce((s, r) => s + r.arrears, 0), tC = rows.reduce((s, r) => s + r.current, 0), tT = rows.reduce((s, r) => s + r.total, 0);
+            return `${mstHead(`Debtors List as at 31 December ${minYear()}`)}
+            ${rows.length ? `<div class="table-wrap"><table><thead><tr><th>#</th><th>NAME OF PUPIL</th><th>ADM NO</th><th>CLASS</th><th>Prior Arrears (B/F) ($)</th><th>${minYear()} ($)</th><th>TOTAL ($)</th></tr></thead>
+            <tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.admNo)}</td><td>${esc(r.cls)}</td><td>${fmtPlain(r.arrears)}</td><td>${fmtPlain(r.current)}</td><td>${fmtPlain(r.total)}</td></tr>`).join('')}
+            <tr><td colspan="4"><strong>TOTALS (${rows.length} debtors)</strong></td><td><strong>${fmtPlain(tA)}</strong></td><td><strong>${fmtPlain(tC)}</strong></td><td><strong>${fmtPlain(tT)}</strong></td></tr>
+            </tbody></table></div>` : '<div class="empty-state"><div class="icon">✅</div><h3>No debtors for the selected year</h3></div>'}
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('deb')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('deb')">📊 CSV</button>
+                <span style="font-size:12px;color:var(--text-light);align-self:center;">Auto-built from Fee Records for ${minYear()}.</span>
+            </div>`;
+        }
+
+        function ministryArrearsHTML() {
+            ministryInitState();
+            const rows = state.ministryArrears;
+            const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+            return `${mstHead(`LEVY Report on Payment Arrears as at 31 December ${minYear()}`)}
+            <div class="table-wrap"><table><thead><tr>
+                <th>Invoice Date</th><th>Department</th><th>Funding Source</th><th>Exp Type</th><th>Supplier</th><th>Inv#/Ref</th><th>GRN</th><th>Amount ($)</th><th>Currency</th><th>PFMS</th><th>Terms (days)</th><th>Days in Arrear</th><th>Notes</th><th></th></tr></thead>
+            <tbody>${rows.map((r, i) => `<tr>
+                <td>${esc(r.date)}</td><td>${esc(r.dept)}</td><td>${esc(r.source)}</td><td>${esc(r.expType)}</td><td>${esc(r.supplier)}</td><td>${esc(r.ref)}</td><td>${esc(r.grn)}</td>
+                <td>${fmtPlain(r.amount)}</td><td>${esc(r.currency || 'USD')}</td><td>${esc(r.pfms || 'N')}</td><td>${esc(r.terms || '')}</td><td>${esc(r.days || '')}</td><td style="max-width:140px;">${esc(r.notes || '')}</td>
+                <td><button class="btn btn-sm btn-danger" onclick="delMinistryArrears(${i})">🗑️</button></td></tr>`).join('')
+                || '<tr><td colspan="14" style="color:var(--text-light)">No payment arrears captured.</td></tr>'}
+            <tr><td colspan="7"><strong>TOTAL</strong></td><td><strong>${fmtPlain(total)}</strong></td><td colspan="6"></td></tr></tbody></table></div>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-primary btn-sm" onclick="addMinistryArrears()">➕ Add Arrear Row</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('arr')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('arr')">📊 CSV</button>
+            </div>`;
+        }
+
+        function addMinistryArrears() {
+            openModal('Add Payment Arrears Row', `
+            <div class="form-grid">
+                ${[['mAdate', 'Invoice Date', 'date', ''], ['mAdept', 'Department', 'text', ''], ['mAsource', 'Funding Source', 'text', ''],
+                ['mAexp', 'Expense Type', 'text', ''], ['mAsup', 'Supplier', 'text', ''], ['mAref', 'Inv#/Ref', 'text', ''],
+                ['mAgrn', 'GRN', 'text', ''], ['mAamt', 'Amount ($)', 'number', ''], ['mAcur', 'Currency', 'text', 'USD'],
+                ['mApfms', 'PFMS (Y/N)', 'text', 'N'], ['mAterms', 'Payment Terms (days)', 'number', ''], ['mAdays', 'Days in Arrear', 'number', ''],
+                ['mAnotes', 'Notes/Comments', 'text', '']].map(([id, label, type, def]) =>
+                    `<div class="form-group"><label>${label}</label><input type="${type}" id="${id}" placeholder="${def}"></div>`).join('')}
+            </div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save Row', cls: 'btn-primary', action: 'saveMinistryArrears()' }]);
+        }
+
+        function saveMinistryArrears() {
+            ministryInitState();
+            state.ministryArrears.push({ date: val('mAdate'), dept: val('mAdept'), source: val('mAsource'), expType: val('mAexp'),
+                supplier: val('mAsup'), ref: val('mAref'), grn: val('mAgrn'), amount: Mnum2(val('mAamt')), currency: val('mAcur') || 'USD',
+                pfms: val('mApfms'), terms: val('mAterms'), days: val('mAdays'), notes: val('mAnotes') });
+            saveState(); closeModal(); accountsPage(); toast('Arrears row saved', 'success');
+        }
+        function Mnum2(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+        function delMinistryArrears(i) {
+            if (!confirm('Delete this arrears row?')) return;
+            state.ministryArrears.splice(i, 1); saveState(); accountsPage();
+        }
+
+        function ministryAssetsHTML() {
+            ministryInitState();
+            const cls = state.ministryAssets;
+            const t = cls.reduce((a, c) => ({ cost: a.cost + Mnum2(c.cost), dep: a.dep + Mnum2(c.accDep), cur: a.cur + Mnum2(c.curDep), nbv: a.nbv + (Mnum2(c.cost) - Mnum2(c.accDep)) }), { cost: 0, dep: 0, cur: 0, nbv: 0 });
+            return `${mstHead('Asset Summary')}
+            <div class="table-wrap"><table><thead><tr><th>Asset Class</th><th>Cost ($)</th><th>Accumulated Depreciation ($)</th><th>Net Book Value ($)</th><th>Current Year Depreciation ($)</th></tr></thead>
+            <tbody>${cls.map(c => `<tr><td>${esc(c.name)}</td><td>${fmtPlain(c.cost)}</td><td>${fmtPlain(c.accDep)}</td><td>${fmtPlain(Mnum2(c.cost) - Mnum2(c.accDep))}</td><td>${fmtPlain(c.curDep)}</td></tr>`).join('')}
+            <tr><td><strong>Total</strong></td><td><strong>${fmtPlain(t.cost)}</strong></td><td><strong>${fmtPlain(t.dep)}</strong></td><td><strong>${fmtPlain(t.nbv)}</strong></td><td><strong>${fmtPlain(t.cur)}</strong></td></tr>
+            </tbody></table></div>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="ministryEditAssetSummary()">⚙️ Edit Asset Figures</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('ass')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('ass')">📊 CSV</button>
+            </div>`;
+        }
+
+        function ministryEditAssetSummary() {
+            ministryInitState();
+            openModal('Edit Asset Summary — Cost / Accumulated Dep / Current-Year Dep', `
+            <div class="form-grid" style="max-height:55vh;overflow:auto;">
+                ${state.ministryAssets.map((c, i) => `<div class="form-group"><label>${esc(c.name)} — Cost ($)</label><input type="number" id="mAsCost_${i}" value="${c.cost}"></div>
+                <div class="form-group"><label>${esc(c.name)} — Accumulated Dep ($)</label><input type="number" id="mAsDep_${i}" value="${c.accDep}"></div>
+                <div class="form-group"><label>${esc(c.name)} — Current-Year Dep ($)</label><input type="number" id="mAsCur_${i}" value="${c.curDep}"></div>`).join('')}
+            </div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save Assets', cls: 'btn-primary', action: 'saveMinistryAssets()' }]);
+        }
+
+        function saveMinistryAssets() {
+            ministryInitState();
+            state.ministryAssets.forEach((c, i) => { c.cost = Mnum2(val('mAsCost_' + i)); c.accDep = Mnum2(val('mAsDep_' + i)); c.curDep = Mnum2(val('mAsCur_' + i)); });
+            saveState(); closeModal(); accountsPage(); toast('Asset summary saved', 'success');
+        }
+
+        function ministryTBData() {
+            const rev = ministryRevenue(), exp = ministryExpenditure(), rec = ministryReceivables(), pos = ministryPosition();
+            const dr = [];
+            const cr = [];
+            const fund = Mnum('mOpeningFund');
+            cr.push(['Accumulated Fund 01/01/' + minYear().slice(2), fund]);
+            Object.entries(rev).filter(([k]) => k !== 'total').forEach(([_, v]) => cr.push(['Revenue', v]));
+            cr.push(['Payables and Accruals', pos.payables]);
+            cr.push(['Direct Deposits Not Receipted', pos.deposits]);
+            cr.push(['Funds Pending Transfer', pos.pending]);
+            dr.push(['Receivables (levies)', rec.net]);
+            dr.push(['Bank', pos.banks]);
+            dr.push(['Cash on Hand', pos.cash]);
+            dr.push(['Prepayments', pos.prepay]);
+            dr.push(['Inventories', pos.inventory]);
+            dr.push(['Employment Costs', exp.employment]);
+            dr.push(['Use of Goods and Services', exp.goodsServices + exp.other]);
+            return { dr, cr };
+        }
+
+        function ministryTBHTML() {
+            const { dr, cr } = ministryTBData();
+            const sum = a => a.reduce((s, r) => s + (Number(r[1]) || 0), 0);
+            const sDr = sum(dr), sCr = sum(cr);
+            return `${mstHead(`Trial Balance for year ended 31 December ${minYear()}`)}
+            <table><thead><tr><th>Account</th><th style="width:160px;">DR ($)</th><th style="width:160px;">CR ($)</th></tr></thead>
+            <tbody>
+                ${cr.map(r => `<tr><td>${esc(r[0])}</td><td></td><td>${fmtPlain(r[1])}</td></tr>`).join('')}
+                ${dr.map(r => `<tr><td>${esc(r[0])}</td><td>${fmtPlain(r[1])}</td><td></td></tr>`).join('')}
+                <tr><td><strong>TOTALS</strong></td><td><strong>${fmtPlain(sDr)}</strong></td><td><strong>${fmtPlain(sCr)}</strong></td></tr>
+                ${Math.abs(sDr - sCr) > 0.01 ? `<tr><td colspan="3" class="alert alert-warning">⚠️ Not balanced — difference ${fmtPlain(Math.abs(sDr - sCr))}. Check opening fund / bank &amp; cash inputs (Assets &amp; Liabilities tab).</td></tr>` : ''}
+            </tbody></table>
+            <div class="btn-group" style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('tb')">📄 PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('tb')">📊 CSV</button>
+            </div>`;
+        }
+
+        function ministryNotesHTML() {
+            const levies = ministryLevyCalcs();
+            const rec = ministryReceivables();
+            return `${mstHead(`Notes to the ${minYear()} Financial Statements (auto calculations)`)}
+            <div style="display:grid;grid-template-columns:1fr;gap:14px;">
+                <div><h4>Calculation of Levies</h4>
+                    <table><thead><tr><th></th><th>Amount ($)</th></tr></thead><tbody>
+                        <tr><td>Term 1 Levies</td><td>${fmtPlain(levies.levy[0])}</td></tr>
+                        <tr><td>Term 2 Levies</td><td>${fmtPlain(levies.levy[1])}</td></tr>
+                        <tr><td>Term 3 Levies</td><td>${fmtPlain(levies.levy[2])}</td></tr>
+                        <tr><td><strong>Total Levies</strong></td><td><strong>${fmtPlain(levies.levyT)}</strong></td></tr>
+                    </tbody></table></div>
+                <div><h4>Calculation of Boarding / Special Levies</h4>
+                    <table><thead><tr><th></th><th></th></tr></thead><tbody>
+                        <tr><td>Total Boarding Levies</td><td>${fmtPlain(levies.boardingT)}</td></tr>
+                        <tr><td>Total Special Levies</td><td>${fmtPlain(levies.specialT)}</td></tr>
+                    </tbody></table></div>
+                <div><h4>Calculation of Receivables (Levies)</h4>
+                    <table><thead><tr><th></th><th>Amount ($)</th></tr></thead><tbody>
+                        <tr><td>Balance b/d (prior arrears B/F)</td><td>${fmtPlain(rec.opening)}</td></tr>
+                        <tr><td>add Current Receivables (${minYear()})</td><td>${fmtPlain(rec.current)}</td></tr>
+                        <tr><td>less Receivables Recovered</td><td>${fmtPlain(rec.recovered)}</td></tr>
+                        <tr><td>less Receivables Written off</td><td>${fmtPlain(rec.writtenOff)}</td></tr>
+                        <tr><td><strong>Net Current Receivables</strong></td><td><strong>${fmtPlain(rec.net)}</strong></td></tr>
+                    </tbody></table>
+                    <div class="btn-group" style="margin-top:8px;"><button class="btn btn-outline btn-sm" onclick="ministryEditInputs('mrec')">⚙️ Edit Recovered / Written-off</button></div>
+                </div>
+                <div><h4>Payables and Liabilities</h4>
+                    <table><thead><tr><th></th><th>Amount ($)</th></tr></thead><tbody>
+                        <tr><td>ZETDC</td><td>${fmtPlain(Mnum('mPayZETDC'))}</td></tr>
+                        <tr><td>G.T.C/GSRDC</td><td>${fmtPlain(Mnum('mPayGSRDC'))}</td></tr>
+                        <tr><td>Telone</td><td>${fmtPlain(Mnum('mPayTelone'))}</td></tr>
+                        <tr><td>Other Payables</td><td>${fmtPlain(Mnum('mPayOther'))}</td></tr>
+                        <tr><td>Direct Deposits Not Receipted</td><td>${fmtPlain(Mnum('mDeposits'))}</td></tr>
+                        <tr><td>Funds Pending Transfer</td><td>${fmtPlain(Mnum('mPendingTransfer'))}</td></tr>
+                        <tr><td>SDC Levies Paid in Advance</td><td>${fmtPlain(Mnum('mAdvance'))}</td></tr>
+                    </tbody></table></div>
+                <div><h4>Banks and Cash</h4>
+                    <table><thead><tr><th></th><th>Amount ($)</th></tr></thead><tbody>
+                        <tr><td>CBZ</td><td>${fmtPlain(Mnum('mBank1'))}</td></tr>
+                        <tr><td>AFC</td><td>${fmtPlain(Mnum('mBank2'))}</td></tr>
+                        <tr><td>Other Bank</td><td>${fmtPlain(Mnum('mBank3'))}</td></tr>
+                        <tr><td>Cash on Hand</td><td>${fmtPlain(Mnum('mCash'))}</td></tr>
+                    </tbody></table>
+                    <div class="btn-group" style="margin-top:8px;"><button class="btn btn-outline btn-sm" onclick="ministryEditInputs('mpos')">⚙️ Edit Banks / Cash / Payables</button></div>
+                </div>
+            </div>
+            <div class="btn-group" style="margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="exportMinistryPDF('notes')">📄 PDF</button><button class="btn btn-outline btn-sm" onclick="exportMinistryCSV('notes')">📊 CSV</button></div>`;
+        }
+
+        // Generic inputs modal for ministry manual figures
+        const MINISTRY_INPUT_FIELDS = {
+            mpos: [['mBank1', 'Bank 1 — CBZ ($)', 'number'], ['mBank2', 'Bank 2 — AFC ($)', 'number'], ['mBank3', 'Other Bank ($)', 'number'],
+            ['mCash', 'Cash on Hand ($)', 'number'], ['mPrepay', 'Prepayments ($)', 'number'], ['mInventory', 'Inventories ($)', 'number'],
+            ['mPayZETDC', 'Payables — ZETDC ($)', 'number'], ['mPayGSRDC', 'Payables — G.T.C/GSRDC ($)', 'number'],
+            ['mPayTelone', 'Payables — Telone ($)', 'number'], ['mPayOther', 'Other Payables ($)', 'number'],
+            ['mDeposits', 'Direct Deposits Not Receipted ($)', 'number'], ['mPendingTransfer', 'Funds Pending Transfer ($)', 'number'],
+            ['mAdvance', 'SDC Levies Paid in Advance ($)', 'number'], ['mOpeningFund', 'Opening Accumulated Fund ($)', 'number']],
+            mrec: [['mRecRecovered', 'Receivables Recovered ($)', 'number'], ['mRecWrittenOff', 'Receivables Written off ($)', 'number']],
+            mcfg: [['mcfRecDelta', 'Movement in receivables (+/- $)', 'number'], ['mcfPayDelta', 'Movement in payables (+/- $)', 'number'],
+            ['mcfInvesting', 'Net Investing Flows ($)', 'number'], ['mcfFinancing', 'Net Financing Flows ($)', 'number'],
+            ['mcfFx', 'FX Effect ($)', 'number'], ['mcfOpening', 'Cash &amp; Equivalents at start of year ($)', 'number']],
+            mbud: [['mBudORev', 'Original Budget — Revenue ($)', 'number'], ['mBudFRev', 'Final Budget — Revenue ($)', 'number'],
+            ['mBudOExp', 'Original Budget — Expenses ($)', 'number'], ['mBudFExp', 'Final Budget — Expenses ($)', 'number']]
+        };
+
+        function ministryEditInputs(key) {
+            const fields = MINISTRY_INPUT_FIELDS[key];
+            if (!fields) return;
+            openModal('Edit Ministry Statement Inputs', `
+            <div class="form-grid">${fields.map(([id, label, type]) =>
+                `<div class="form-group"><label>${label}</label><input type="${type}" id="${id}" value="${Mval(id)}"></div>`).join('')}</div>`, [
+                { label: 'Cancel', cls: 'btn-outline', action: 'closeModal()' },
+                { label: 'Save', cls: 'btn-primary', action: `saveMinistryInputs('${key}')` }]);
+        }
+
+        function saveMinistryInputs(key) {
+            (MINISTRY_INPUT_FIELDS[key] || []).forEach(([id]) => {
+                const el = $(id);
+                if (!el) return;
+                if (!state.ministryVals) state.ministryVals = {};
+                state.ministryVals[id] = el.value === '' ? '' : el.value;
+            });
+            saveState(); closeModal(); accountsPage(); toast('Inputs saved', 'success');
+        }
+
+        // Exports (PDF + CSV) for each statement tab
+        function ministryExportData(key) {
+            const school = [state.settings.province || 'Name of Province', state.settings.district || 'Name of District', state.settings.schoolName];
+            const Y = minYear();
+            switch (key) {
+                case 'perf': { const d = ministryPerfData();
+                    return { school, Y, title: `Statement of Financial Performance for the year ended 31 December ${Y}`, rows: [
+                        ['Revenue', ''], ['Levies, Subscriptions', d.rev.levies], ['Donations', d.rev.donations],
+                        ['Other Income', d.rev.other], ['Total Income', d.rev.total],
+                        ['Employment Costs', d.exp.employment], ['Use of Goods and Services', d.exp.goodsServices],
+                        ['Other Expenses', d.exp.other], ['Total Expenses', d.exp.total],
+                        [(d.surplus >= 0 ? 'Surplus' : 'Deficit'), Math.abs(d.surplus)]] }; }
+                case 'pos': { const p = ministryPosition();
+                    return { school, Y, title: `Statement of Financial Position as at 31 December ${Y}`, rows: [
+                        ['Bank', p.banks], ['Cash on Hand', p.cash], ['Receivables', p.receivables], ['Prepayments', p.prepay],
+                        ['Inventories', p.inventory], ['Total Assets', p.assets], ['Payables and Accruals', p.payables],
+                        ['Direct Deposits Not Receipted', p.deposits], ['Funds Pending Transfer', p.pending],
+                        ['SDC Levies Paid in Advance', p.advance], ['Total Liabilities', p.liab], ['Total Net Assets/Equity', p.equity]] }; }
+                case 'net': { const p = ministryPosition();
+                    return { school, Y, title: `Statement of Changes in Net Assets for the year ended 31 December ${Y}`, rows: [
+                        ['Opening Balance', p.openingFund], ['Surplus for the period', p.surplus], ['Closing Balance', p.equity]] }; }
+                case 'cash': { const surplus = ministryPerfData().surplus; const net = surplus + Mnum('mcfRecDelta') + Mnum('mcfPayDelta') + Mnum('mcfInvesting') + Mnum('mcfFinancing') + Mnum('mcfFx'); const opening = Mnum('mcfOpening');
+                    return { school, Y, title: `Statement of Cash Flows for the year ended 31 December ${Y}`, rows: [
+                        ['Surplus/Deficit', surplus], ['Increase in receivables', Mnum('mcfRecDelta')], ['Increase in payables', Mnum('mcfPayDelta')],
+                        ['Net Investing', Mnum('mcfInvesting')], ['Net Financing', Mnum('mcfFinancing')], ['Net FX effect', Mnum('mcfFx')],
+                        ['Net Increase (Decrease)', net], ['Cash at beginning', opening], ['Cash at end', opening + net]] }; }
+                case 'bud': { const d = ministryPerfData(); const oRev = Mnum('mBudORev'), fRev = Mnum('mBudFRev'), oExp = Mnum('mBudOExp'), fExp = Mnum('mBudFExp');
+                    return { school, Y, title: `Statement of Comparison of Budget and Actual Amounts — ${Y}`, rows: [
+                        ['Revenue: Original', oRev], ['Revenue: Final', fRev], ['Revenue: Actual', d.rev.total],
+                        ['Expenses: Original', oExp], ['Expenses: Final', fExp], ['Expenses: Actual', d.exp.total],
+                        ['Budgeted Surplus (final)', fRev - fExp], ['Actual Surplus', d.rev.total - d.exp.total]] }; }
+                case 'deb': { const rows = ministryDebtors();
+                    return { school, Y, title: `Debtors List as at 31 December ${Y}`, head: ['#', 'Name', 'Adm No', 'Class', 'Prior Arrears', Y, 'Total'],
+                        rows: rows.map((r, i) => [i + 1, r.name, r.admNo, r.cls, r.arrears, r.current, r.total])
+                            .concat([['', 'TOTALS', '', '', rows.reduce((s, r) => s + r.arrears, 0), rows.reduce((s, r) => s + r.current, 0), rows.reduce((s, r) => s + r.total, 0)]]),
+                        head2: true }; }
+                case 'arr': { return { school, Y, title: `LEVY Report on Payment Arrears as at 31 December ${Y}`, head: ['Invoice Date', 'Department', 'Funding Source', 'Exp Type', 'Supplier', 'Inv#/Ref', 'GRN', 'Amount', 'Currency', 'PFMS', 'Terms', 'Days in Arrear', 'Notes'],
+                    rows: state.ministryArrears.map(r => [r.date, r.dept, r.source, r.expType, r.supplier, r.ref, r.grn, r.amount, r.currency, r.pfms, r.terms, r.days, r.notes]), head2: true }; }
+                case 'ass': { ministryInitState(); const c = state.ministryAssets;
+                    return { school, Y, title: `Asset Summary as at 31 December ${Y}`, head: ['Asset Class', 'Cost', 'Accumulated Depreciation', 'Net Book Value', 'Current Year Dep'],
+                        rows: c.map(x => [x.name, x.cost, x.accDep, Mnum2(x.cost) - Mnum2(x.accDep), x.curDep]), head2: true }; }
+                case 'tb': { const { dr, cr } = ministryTBData();
+                    return { school, Y, title: `Trial Balance for year ended 31 December ${Y}`, head: ['Account', 'DR', 'CR'],
+                        rows: cr.map(r => [r[0], '', r[1]]).concat(dr.map(r => [r[0], r[1], ''])), head2: true }; }
+                case 'notes': { const l = ministryLevyCalcs(); const rec = ministryReceivables();
+                    return { school, Y, title: `Notes to the Financial Statements — ${Y}`, rows: [
+                        ['Term 1 Levies', l.levy[0]], ['Term 2 Levies', l.levy[1]], ['Term 3 Levies', l.levy[2]], ['Total Levies', l.levyT],
+                        ['Total Boarding Levies', l.boardingT], ['Total Special Levies', l.specialT],
+                        ['Receivables Balance b/d', rec.opening], ['Current Receivables', rec.current],
+                        ['Receivables Recovered', rec.recovered], ['Receivables Written off', rec.writtenOff], ['Net Current Receivables', rec.net],
+                        ['Payables ZETDC', Mnum('mPayZETDC')], ['Payables GSRDC', Mnum('mPayGSRDC')], ['Payables Telone', Mnum('mPayTelone')],
+                        ['Direct Deposits Not Receipted', Mnum('mDeposits')], ['Funds Pending Transfer', Mnum('mPendingTransfer')],
+                        ['SDC Levies Paid in Advance', Mnum('mAdvance')], ['Bank CBZ', Mnum('mBank1')], ['Bank AFC', Mnum('mBank2')],
+                        ['Other Bank', Mnum('mBank3')], ['Cash on Hand', Mnum('mCash')]] }; }
+                default: return null;
+            }
+        }
+
+        function exportMinistryPDF(key) {
+            const d = ministryExportData(key);
+            if (!d) return;
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF('l');
+            doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.text('Ministry of Primary and Secondary Education', 14, 15);
+            doc.setFontSize(10); doc.setFont('helvetica', 'normal'); doc.text(`${d.school.join(' | ')}`, 14, 21);
+            doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.text(d.title, 14, 29);
+            doc.autoTable({ startY: 35, body: (d.head ? [d.head] : ['Item', 'Amount']).concat(d.rows).map(r => Array.isArray(r) ? r : [r[0], fmtPlain(r[1])]),
+                styles: { fontSize: 9 }, theme: 'striped', headStyles: { fillColor: [26, 35, 126] } });
+            doc.save(`Ministry_${key}_${minYear()}.pdf`);
+            toast('Statement exported to PDF', 'success');
+        }
+
+        function exportMinistryCSV(key) {
+            const d = ministryExportData(key);
+            if (!d) return;
+            const rows = (d.rows.map(r => Array.isArray(r) ? r : [r[0], (Number(r[1]) || 0)]));
+            downloadCSV(`Ministry_${key}_${minYear()}`, d.head || ['Item', 'Amount'], rows);
+            toast('Statement exported to CSV', 'success');
+        }
+
+        function exportMinistryAllPDF() {
+            ['perf', 'pos', 'net', 'cash', 'bud', 'deb', 'arr', 'ass', 'tb', 'notes'].forEach((k, i) => setTimeout(() => exportMinistryPDF(k), i * 400));
         }
 
         function renderBankRecon() {
