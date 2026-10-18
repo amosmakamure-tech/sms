@@ -4122,8 +4122,10 @@
             $('pageContent').innerHTML = `
             <div class="tabs">
                 <div class="tab active" id="tabBtnEntry" onclick="switchTab('tab-marks-entry','tabs-marks',this)">📝 Mark Entry</div>
-                <div class="tab" onclick="switchTab('tab-marks-tests','tabs-marks',this)">🧪 Tests &amp; Exercises</div>
+                <div class="tab" onclick="switchTab('tab-marks-tests','tabs-marks',this)">🧪 Tests</div>
+                <div class="tab" onclick="switchTab('tab-marks-exerc','tabs-marks',this)">🏃 Exercises</div>
                 <div class="tab" onclick="switchTab('tab-marks-edit','tabs-marks',this)">✏️ Edit / Erase</div>
+                <div class="tab" onclick="switchTab('tab-marks-sched','tabs-marks',this)">📑 Mark Schedule</div>
                 <div class="tab" onclick="switchTab('tab-marks-analysis','tabs-marks',this)">📊 Analysis</div>
                 <div class="tab" onclick="switchTab('tab-marks-view','tabs-marks',this)">👁️ View All Marks</div>
             </div>
@@ -4157,40 +4159,75 @@
             </div>
             <div id="tab-marks-tests" class="tab-content">
                 <div class="card">
-                    <div class="card-header"><span class="card-title">🧪 Test / Exercise Register</span>
+                    <div class="card-header"><span class="card-title">🧪 Tests</span>
                         <div class="btn-group">
-                            <button class="btn btn-primary" onclick="saveTestRegister()">💾 Save Test Marks</button>
+                            <button class="btn btn-primary" onclick="saveTestRegister('trs')">💾 Save Test Marks</button>
                         </div>
                     </div>
-                    <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Individual teachers record each test or exercise mark during the term. These are <strong>recorded marks</strong> — they do not affect a subject's CA or final total unless marked as a <strong>Major Test</strong> (end-of-month or end-of-term tests), which then applies as the CA mark.</p>
+                    <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Record each test during the term. A <strong>Test</strong> is recorded AND shown in the learner's Progress Report; a <strong>Major Test</strong> (end-of-month / end-of-term) also applies as the subject's CA mark.</p>
                     <div class="filter-bar">
-                        <input type="text" id="trSearch" placeholder="🔍 Search learner in grid..." style="max-width:220px;" oninput="filterStudentRows(this.value,'testEntryGrid')">
-                        <select id="trClass" onchange="loadTestRegister()">
+                        <input type="text" id="trsSearch" placeholder="🔍 Search learner in grid..." style="max-width:220px;" oninput="filterStudentRows(this.value,'grid_trs')">
+                        <select id="trsClass" onchange="loadTestRegister('trs')">
                             <option value="">Select Class</option>
                             ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
                         </select>
-                        <select id="trSubject" onchange="loadTestRegister()">
+                        <select id="trsSubject" onchange="loadTestRegister('trs')">
                             <option value="">Select Subject</option>
                             ${state.subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
                         </select>
-                        <select id="trTerm" onchange="loadTestRegister()">
+                        <select id="trsTerm" onchange="loadTestRegister('trs')">
                             <option value="Term 1">Term 1</option>
                             <option value="Term 2">Term 2</option>
                             <option value="Term 3">Term 3</option>
                         </select>
                     </div>
                     <div class="filter-bar" style="margin-top:10px;">
-                        <input type="text" id="trName" list="trNames" placeholder="Test / exercise name, e.g. Exercise 3, End of Month Test (May)" style="flex:2;min-width:220px;" onchange="renderTestEntryGrid()">
-                        <datalist id="trNames"></datalist>
-                        <select id="trType" onchange="renderTestEntryGrid()">
-                            <option value="Exercise">Exercise / Class Test (recorded only)</option>
-                            <option value="Major">Major Test (applies as CA)</option>
+                        <input type="text" id="trsName" list="trsNames" placeholder="Test name, e.g. End of Month Test (May)" style="flex:2;min-width:220px;" onchange="renderTestEntryGrid('trs')">
+                        <datalist id="trsNames"></datalist>
+                        <select id="trsType" onchange="renderTestEntryGrid('trs')">
+                            <option value="Test">Test (recorded + shown in Progress Report)</option>
+                            <option value="Major">Major Test (also applies as CA)</option>
                         </select>
-                        <input type="number" id="trOutOf" value="100" min="1" step="1" placeholder="Out of" style="max-width:110px;" onchange="renderTestEntryGrid()">
-                        <input type="date" id="trDate" value="${new Date().toISOString().split('T')[0]}" style="max-width:160px;">
+                        <input type="number" id="trsOutOf" value="100" min="1" step="1" placeholder="Out of" style="max-width:110px;" onchange="renderTestEntryGrid('trs')">
+                        <input type="date" id="trsDate" value="${new Date().toISOString().split('T')[0]}" style="max-width:160px;">
                     </div>
-                    <div id="testListWrap" style="margin:14px 0 6px;"></div>
-                    <div id="testEntryGrid"></div>
+                    <div id="list_trs" style="margin:14px 0 6px;"></div>
+                    <div id="grid_trs"></div>
+                </div>
+            </div>
+            <div id="tab-marks-exerc" class="tab-content">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">🏃 Exercises</span>
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="saveTestRegister('trx')">💾 Save Exercise Marks</button>
+                        </div>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">Class exercises, homework checks and small class tests. These are <strong>recorded only</strong> — they stay here in Marks &amp; Grades and <strong>never appear in Progress Reports</strong> and never change CA or final totals.</p>
+                    <div class="filter-bar">
+                        <input type="text" id="trxSearch" placeholder="🔍 Search learner in grid..." style="max-width:220px;" oninput="filterStudentRows(this.value,'grid_trx')">
+                        <select id="trxClass" onchange="loadTestRegister('trx')">
+                            <option value="">Select Class</option>
+                            ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                        </select>
+                        <select id="trxSubject" onchange="loadTestRegister('trx')">
+                            <option value="">Select Subject</option>
+                            ${state.subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
+                        </select>
+                        <select id="trxTerm" onchange="loadTestRegister('trx')">
+                            <option value="Term 1">Term 1</option>
+                            <option value="Term 2">Term 2</option>
+                            <option value="Term 3">Term 3</option>
+                        </select>
+                    </div>
+                    <div class="filter-bar" style="margin-top:10px;">
+                        <input type="text" id="trxName" list="trxNames" placeholder="Exercise name, e.g. Exercise 3" style="flex:2;min-width:220px;" onchange="renderTestEntryGrid('trx')">
+                        <datalist id="trxNames"></datalist>
+                        <input type="text" id="trxType" value="Exercise (recorded only)" readonly style="max-width:240px;background:#f5f5f5;">
+                        <input type="number" id="trxOutOf" value="100" min="1" step="1" placeholder="Out of" style="max-width:110px;" onchange="renderTestEntryGrid('trx')">
+                        <input type="date" id="trxDate" value="${new Date().toISOString().split('T')[0]}" style="max-width:160px;">
+                    </div>
+                    <div id="list_trx" style="margin:14px 0 6px;"></div>
+                    <div id="grid_trx"></div>
                 </div>
             </div>
             <div id="tab-marks-edit" class="tab-content">
@@ -4216,6 +4253,33 @@
                         <button class="btn btn-primary" onclick="openEditInGrid()">📝 Open grid to add / edit marks</button>
                         <button class="btn btn-danger" onclick="eraseAllClassSubjectMarks()">🗑️ Erase ALL marks for this class &amp; subject</button>
                     </div>
+                </div>
+            </div>
+            <div id="tab-marks-sched" class="tab-content">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">📑 Subject Mark Schedule</span>
+                        <div class="btn-group">
+                            <button class="btn btn-outline btn-sm" onclick="exportMarkSchedulePDF()">🖨️ PDF</button>
+                            <button class="btn btn-outline btn-sm" onclick="exportMarkScheduleCSV()">📥 CSV</button>
+                        </div>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-light);margin-bottom:10px;">All marks recorded for one class and one subject during the same term — every test and exercise, plus CA and Paper marks — in a single schedule.</p>
+                    <div class="filter-bar" id="schedFilters">
+                        <select id="scClass" onchange="loadMarkSchedule()">
+                            <option value="">Select Class</option>
+                            ${state.classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                        </select>
+                        <select id="scSubject" onchange="loadMarkSchedule()">
+                            <option value="">Select Subject</option>
+                            ${state.subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
+                        </select>
+                        <select id="scTerm" onchange="loadMarkSchedule()">
+                            <option value="Term 1">Term 1</option>
+                            <option value="Term 2">Term 2</option>
+                            <option value="Term 3">Term 3</option>
+                        </select>
+                    </div>
+                    <div id="schedWrap" style="margin-top:10px;"></div>
                 </div>
             </div>
             <div id="tab-marks-analysis" class="tab-content">
@@ -4377,6 +4441,129 @@
             toast(`${hits.length} mark record(s) erased for ${sub} — ${c} (${t})`, 'success');
         }
 
+        function markScheduleData() {
+            const cls = val('scClass'), subj = val('scSubject'), term = val('scTerm');
+            if (!cls || !subj) return null;
+            const year = state.settings.academicYear;
+            const recs = state.marks.filter(m => m.class === cls && m.subject === subj && m.term === term && m.year === year);
+            const studentsInClass = state.students.filter(s => s.class === cls && s.status === 'Active');
+            const labels = [];
+            recs.filter(m => m.type === 'Test').forEach(m => { if (labels.indexOf(m.label) === -1) labels.push(m.label); });
+            const cfg = getSubjectConfig(subj);
+            const caMax = cfg.caMax || 40;
+            const catOf = l => {
+                const r = recs.find(m => m.type === 'Test' && m.label === l);
+                return r ? (r.category === 'exercise' ? 'Ex' : (r.major ? 'Major' : 'Test')) : '';
+            };
+            const items = [];
+            studentsInClass.forEach(s => {
+                const caRec = recs.find(m => m.type === 'CA' && m.studentId === s.id);
+                const ca = caRec ? Number(caRec.mark) : null;
+                const paperRec = recs.find(m => m.type === 'Paper' && m.studentId === s.id);
+                const exam = paperRec ? (paperRec.papers ? calcExamFromPapers(subj, paperRec.papers) : (Number(paperRec.mark) || 0)) : null;
+                const tcells = {};
+                labels.forEach(l => {
+                    const r = recs.find(m => m.type === 'Test' && m.studentId === s.id && m.label === l);
+                    tcells[l] = r ? { mark: r.mark, outOf: r.outOf || 100, pct: (r.pct !== undefined && r.pct !== null) ? r.pct : (r.outOf ? Math.round(r.mark / r.outOf * 1000) / 10 : 0) } : null;
+                });
+                const total = (ca !== null || exam !== null) ? Math.round(((ca || 0) + (exam || 0)) * 10) / 10 : null;
+                items.push({ s, ca, exam, tcells, total, grade: total !== null ? getGrade(total) : '—' });
+            });
+            const scored = items.filter(x => x.total !== null);
+            const classAvg = scored.length ? Math.round(scored.reduce((a, b) => a + b.total, 0) / scored.length * 10) / 10 : null;
+            const sorted = scored.slice().sort((a, b) => b.total - a.total);
+            items.forEach(it => {
+                const idx = it.total === null ? -1 : sorted.findIndex(x => x.s.id === it.s.id);
+                it.position = idx >= 0 ? `${idx + 1} of ${sorted.length}` : '—';
+            });
+            return { cls, subj, term, year, labels, catOf, items, classAvg, caMax, examMax: cfg.examMax || 100 };
+        }
+
+        function markScheduleRow(it, schedule) {
+            const cells = schedule.labels.map(l => {
+                const t = it.tcells[l];
+                return t ? `${t.mark}/${t.outOf} (${t.pct}%)` : '—';
+            });
+            return { cells,
+                plain: [it.s.admNo, it.s.name, ...cells,
+                    it.ca === null ? '—' : it.ca,
+                    it.exam === null ? '—' : it.exam,
+                    it.total === null ? '—' : it.total,
+                    schedule.classAvg === null ? '—' : schedule.classAvg,
+                    it.grade, it.position]
+            };
+        }
+
+        function loadMarkSchedule() {
+            const wrap = $('schedWrap');
+            if (!wrap) return;
+            const schedule = markScheduleData();
+            if (!schedule) { wrap.innerHTML = '<p style="color:var(--text-light);padding:16px;text-align:center;">Select a class and subject — the schedule appears here.</p>'; return; }
+            const rows = schedule.items.map(it => markScheduleRow(it, schedule));
+            wrap.innerHTML = `
+                <div style="background:#e8eaf6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;">
+                    <strong>${esc(schedule.subj)}</strong> — ${esc(schedule.cls)} · ${schedule.term} ${schedule.year}
+                    · CA /${schedule.caMax} + Papers /${schedule.examMax} = Total ${schedule.caMax + schedule.examMax}%
+                    ${labelsTag(schedule)}
+                </div>
+                <div class="table-wrap">
+                <table class="marks-table">
+                    <thead><tr><th>Adm No</th><th>Learner</th>${schedule.labels.map(l => `<th>🧪 ${esc(l)} <span style="font-weight:400;font-size:10px;">(${schedule.catOf(l)})</span></th>`).join('')}<th>CA /${schedule.caMax}</th><th>Papers /${schedule.examMax}</th><th>Total</th><th>Class Avg</th><th>Grade</th><th>Position</th></tr></thead>
+                    <tbody>
+                    ${schedule.items.map(it => {
+                const r = markScheduleRow(it, schedule);
+                return `<tr><td>${it.s.admNo}</td><td>${it.s.name}</td>${r.cells.map(c => `<td>${c}</td>`).join('')}<td>${it.ca === null ? '—' : it.ca}</td><td>${it.exam === null ? '—' : it.exam}</td><td><strong>${it.total === null ? '—' : it.total}</strong></td><td>${schedule.classAvg === null ? '—' : schedule.classAvg}</td><td class="${it.total === null ? '' : it.grade}">${it.grade}</td><td>${it.position}</td></tr>`;
+            }).join('')}
+                    </tbody>
+                </table>
+                </div>
+                ${schedule.items.length ? '' : '<div class="empty-state"><div class="icon">📄</div><h3>No learners found</h3><p>No active learners in this class.</p></div>'}`;
+        }
+
+        function labelsTag(schedule) {
+            const counts = {};
+            schedule.labels.forEach(l => {
+                if (l) { const c = schedule.catOf(l); counts[c] = (counts[c] || 0) + 1; }
+            });
+            const parts = Object.keys(counts).map(c => `${counts[c]} ${c}`);
+            return parts.length ? ' · ' + parts.join(', ') : '';
+        }
+
+        function exportMarkScheduleCSV() {
+            const schedule = markScheduleData();
+            if (!schedule) { toast('Select a class and subject first', 'error'); return; }
+            const header = ['Adm No', 'Learner', ...schedule.labels, 'CA', 'Papers', 'Total', 'Class Avg', 'Grade', 'Position'];
+            const rows = schedule.items.map(it => markScheduleRow(it, schedule).plain);
+            downloadCSV(`MarkSchedule_${schedule.cls}_${schedule.subj}_${schedule.term}_${schedule.year}`, header, rows);
+            toast('Schedule exported to CSV', 'success');
+        }
+
+        function exportMarkSchedulePDF() {
+            const schedule = markScheduleData();
+            if (!schedule) { toast('Select a class and subject first', 'error'); return; }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape' });
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.text(state.settings.schoolName, 148, 16, { align: 'center' });
+            doc.setFontSize(12);
+            doc.text(`MARK SCHEDULE — ${schedule.subj}`, 148, 24, { align: 'center' });
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`${schedule.cls} · ${schedule.term} ${schedule.year} · CA /${schedule.caMax} + Papers /${schedule.examMax} = Total ${schedule.caMax + schedule.examMax}%`, 148, 31, { align: 'center' });
+            const header = ['Adm No', 'Learner', ...schedule.labels.map((l, i) => `${l} (${schedule.catOf(l)})`), `CA /${schedule.caMax}`, `Papers /${schedule.examMax}`, 'Total', 'Class Avg', 'Grade', 'Position'];
+            const rows = schedule.items.map(it => markScheduleRow(it, schedule).plain);
+            doc.autoTable({
+                startY: 38,
+                head: [header],
+                body: rows,
+                styles: { fontSize: 8, cellPadding: 2.5 },
+                headStyles: { fillColor: [26, 35, 126] }
+            });
+            doc.save(`MarkSchedule_${schedule.cls}_${schedule.subj}_${schedule.term}_${schedule.year}.pdf`);
+            toast('Schedule exported to PDF', 'success');
+        }
+
         function recordMarksForStudent(studentId) {
             const s = state.students.find(x => x.id === studentId);
             if (!s) return;
@@ -4516,95 +4703,109 @@
         }
 
         // ---------- Test / Exercise Register (recorded marks; Major Tests -> CA) ----------
-        function loadTestRegister() {
-            const cls = val('trClass');
-            const subj = val('trSubject');
-            const term = val('trTerm');
-            const grid = $('testEntryGrid');
-            const list = $('testListWrap');
+        function switchTestTab(p, el) {
+            switchTab(p === 'trx' ? 'tab-marks-exerc' : 'tab-marks-tests', 'tabs-marks', el);
+        }
+
+        function testCatOf(p) {
+            return p === 'trx' ? 'exercise' : 'test';
+        }
+
+        function isInCategory(m, p) {
+            return p === 'trx' ? m.category === 'exercise' : m.category !== 'exercise';
+        }
+
+        function loadTestRegister(p) {
+            const cls = val(p + 'Class');
+            const subj = val(p + 'Subject');
+            const term = val(p + 'Term');
+            const grid = $('grid_' + p);
+            const list = $('list_' + p);
             if (!cls || !subj) {
                 if (grid) grid.innerHTML = '<p style="color:var(--text-light);padding:20px;text-align:center;">Select class and subject.</p>';
                 if (list) list.innerHTML = '';
                 return;
             }
             const year = state.settings.academicYear;
-            const used = [...new Set(state.marks.filter(m => m.type === 'Test' && m.class === cls && m.subject === subj && m.term === term && m.year === year).map(m => m.label))];
-            const datalist = $('trNames');
+            const used = [...new Set(state.marks.filter(m => m.type === 'Test' && isInCategory(m, p) && m.class === cls && m.subject === subj && m.term === term && m.year === year).map(m => m.label))];
+            const datalist = $(p + 'Names');
             if (datalist) datalist.innerHTML = used.map(l => `<option value="${esc(l)}">`).join('');
-            renderTestsList();
-            renderTestEntryGrid();
+            renderTestsList(p);
+            renderTestEntryGrid(p);
         }
 
-        function renderTestsList() {
-            const cls = val('trClass');
-            const subj = val('trSubject');
-            const term = val('trTerm');
-            const list = $('testListWrap');
-            if (!cls || !subj) return;
+        function renderTestsList(p) {
+            const cls = val(p + 'Class');
+            const subj = val(p + 'Subject');
+            const term = val(p + 'Term');
+            const list = $('list_' + p);
+            if (!list) return;
+            if (!cls || !subj) { list.innerHTML = ''; return; }
             const year = state.settings.academicYear;
-            const recs = state.marks.filter(m => m.type === 'Test' && m.class === cls && m.subject === subj && m.term === term && m.year === year);
+            const recs = state.marks.filter(m => m.type === 'Test' && isInCategory(m, p) && m.class === cls && m.subject === subj && m.term === term && m.year === year);
             const byLabel = {};
             recs.forEach(m => {
-                if (!byLabel[m.label]) byLabel[m.label] = { label: m.label, major: !!m.major, outOf: m.outOf || 100, count: 0, sum: 0, date: m.date || '' };
-                const p = (m.pct !== undefined && m.pct !== null) ? m.pct : (m.outOf ? Math.round(m.mark / m.outOf * 1000) / 10 : 0);
+                if (!byLabel[m.label]) byLabel[m.label] = { label: m.label, major: !!m.major, report: m.showInReport !== false && (p === 'trx' ? false : true), outOf: m.outOf || 100, count: 0, sum: 0, date: m.date || '' };
+                const pct = (m.pct !== undefined && m.pct !== null) ? m.pct : (m.outOf ? Math.round(m.mark / m.outOf * 1000) / 10 : 0);
                 byLabel[m.label].count++;
-                byLabel[m.label].sum += p;
+                byLabel[m.label].sum += pct;
             });
             const labels = Object.keys(byLabel);
+            const heading = p === 'trx' ? '🏃 Exercises taken this term' : '🧪 Tests taken this term';
             list.innerHTML = labels.length ?
                 `<div style="background:#f3e5f5;border-radius:10px;padding:12px;">
-                    <div style="font-weight:700;color:#6a1b9a;font-size:13px;margin-bottom:8px;">🧪 Tests taken this term (${labels.length})</div>
+                    <div style="font-weight:700;color:#6a1b9a;font-size:13px;margin-bottom:8px;">${heading} (${labels.length})</div>
                     <div style="display:grid;gap:6px;">
                     ${labels.map(l => { const t = byLabel[l]; return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;background:#fff;border:1px solid #e1bee7;border-radius:8px;padding:6px 10px;">
-                        <span style="font-size:13px;"><strong>${esc(l)}</strong> ${t.major ? '<span class="badge-status badge-info" style="font-size:10px;">Major (CA)</span>' : ''} <span style="font-size:11px;color:var(--text-light);">· /${t.outOf} · ${t.date || 'no date'} · ${t.count} learners · class avg ${Math.round(t.sum / t.count * 10) / 10}%</span></span>
-                        <button class="btn btn-sm btn-danger" onclick="deleteTest('${esc(l)}')">🗑️</button>
+                        <span style="font-size:13px;"><strong>${esc(l)}</strong> ${t.major ? '<span class="badge-status badge-info" style="font-size:10px;">Major (CA)</span>' : (p === 'trx' ? '<span class="badge-status badge-info" style="font-size:10px;">Exercise</span>' : '<span class="badge-status badge-success" style="font-size:10px;">In report</span>')} <span style="font-size:11px;color:var(--text-light);">· /${t.outOf} · ${t.date || 'no date'} · ${t.count} learners · class avg ${Math.round(t.sum / t.count * 10) / 10}%</span></span>
+                        <button class="btn btn-sm btn-danger" onclick="deleteTest('${esc(l)}','${p}')">🗑️</button>
                     </div>`; }).join('')}
                     </div>
                 </div>` : '';
         }
 
-        function renderTestEntryGrid() {
-            const cls = val('trClass');
-            const subj = val('trSubject');
-            const term = val('trTerm');
-            const grid = $('testEntryGrid');
+        function renderTestEntryGrid(p) {
+            const cls = val(p + 'Class');
+            const subj = val(p + 'Subject');
+            const term = val(p + 'Term');
+            const grid = $('grid_' + p);
             if (!cls || !subj || !grid) return;
-            const name = (val('trName') || '').trim();
+            const name = (val(p + 'Name') || '').trim();
             if (!name) {
-                grid.innerHTML = '<p style="color:var(--text-light);padding:16px 0;text-align:center;">Type a test or exercise name above, then enter each learner\'s mark. Press Save once done.</p>';
+                grid.innerHTML = `<p style="color:var(--text-light);padding:16px 0;text-align:center;">Type a ${p === 'trx' ? 'exercise' : 'test'} name above, then enter each learner's mark. Press Save once done.</p>`;
                 return;
             }
             const year = state.settings.academicYear;
             const studentsInClass = state.students.filter(s => s.class === cls && s.status === 'Active');
-            const outOf = parseInt(val('trOutOf'), 10) || 100;
-            const isMajor = val('trType') === 'Major';
+            const outOf = parseInt(val(p + 'OutOf'), 10) || 100;
+            const isMajor = p === 'trx' ? false : val(p + 'Type') === 'Major';
             grid.innerHTML = `
             <div class="table-wrap">
             <table class="marks-table">
                 <thead><tr><th>Adm No</th><th>Student Name</th><th>Mark /${outOf}</th><th>%</th><th>Grade</th></tr></thead>
                 <tbody>
                 ${studentsInClass.map(s => {
-                    const rec = state.marks.find(m => m.type === 'Test' && m.studentId === s.id && m.subject === subj && m.term === term && m.year === year && m.label === name);
-                    const mark = rec ? rec.mark : '';
-                    const pct = rec ? ((rec.pct !== undefined && rec.pct !== null) ? rec.pct : (rec.outOf ? Math.round(rec.mark / rec.outOf * 1000) / 10 : 0)) : 0;
-                    return `<tr>
+                const rec = state.marks.find(m => m.type === 'Test' && isInCategory(m, p) && m.studentId === s.id && m.subject === subj && m.term === term && m.year === year && m.label === name);
+                const mark = rec ? rec.mark : '';
+                const pct = rec ? ((rec.pct !== undefined && rec.pct !== null) ? rec.pct : (rec.outOf ? Math.round(rec.mark / rec.outOf * 1000) / 10 : 0)) : 0;
+                return `<tr>
                         <td>${s.admNo}</td>
                         <td>${s.name}</td>
-                        <td><input class="mark-input" type="number" id="tm_${s.id}" min="0" max="${outOf}" value="${mark}" onchange="updateTestRow('${s.id}',${outOf})"></td>
-                        <td id="tpc_${s.id}">${pct ? pct + '%' : ''}</td>
-                        <td id="tgr_${s.id}" class="${pct ? getGrade(pct) : ''}">${pct ? getGrade(pct) : ''}</td>
+                        <td><input class="mark-input" type="number" id="tm_${p}_${s.id}" min="0" max="${outOf}" value="${mark}" onchange="updateTestRow('${p}','${s.id}',${outOf})"></td>
+                        <td id="tpc_${p}_${s.id}">${pct ? pct + '%' : ''}</td>
+                        <td id="tgr_${p}_${s.id}" class="${pct ? getGrade(pct) : ''}">${pct ? getGrade(pct) : ''}</td>
                     </tr>`;
-                }).join('')}
+            }).join('')}
                 </tbody>
             </table>
             </div>
-            <p style="font-size:12px;color:var(--text-light);margin-top:8px;">${isMajor ? 'This is a <strong>Major Test</strong> — on save it is applied as the CA mark (scaled to the subject\'s CA max) for each learner.' : 'Recorded only — does not change the subject\'s CA or final total.'}</p>`;
+            <p style="font-size:12px;color:var(--text-light);margin-top:8px;">${p === 'trx' ? 'Recorded exercise only — stays in Marks &amp; Grades, never appears in Progress Reports.' : (isMajor ? 'This is a <strong>Major Test</strong> — on save it is shown in the Progress Report and applied as the CA mark (scaled to the subject\'s CA max) for each learner.' : 'Recorded and shown in the learner\'s Progress Report — does not change the subject\'s CA or final total.')}</p>`;
         }
 
-        function updateTestRow(studentId, outOf) {
-            const el = document.getElementById('tm_' + studentId);
-            const pcEl = document.getElementById('tpc_' + studentId);
-            const grEl = document.getElementById('tgr_' + studentId);
+        function updateTestRow(p, studentId, outOf) {
+            const el = document.getElementById('tm_' + p + '_' + studentId);
+            const pcEl = document.getElementById('tpc_' + p + '_' + studentId);
+            const grEl = document.getElementById('tgr_' + p + '_' + studentId);
             if (!el || !pcEl) return;
             const mark = Math.max(0, parseFloat(el.value) || 0);
             const oo = parseInt(outOf, 10) || 100;
@@ -4614,34 +4815,36 @@
             grEl.className = getGrade(pct);
         }
 
-        function saveTestRegister() {
-            const cls = val('trClass');
-            const subj = val('trSubject');
-            const term = val('trTerm');
-            const name = (val('trName') || '').trim();
+        function saveTestRegister(p) {
+            const cls = val(p + 'Class');
+            const subj = val(p + 'Subject');
+            const term = val(p + 'Term');
+            const name = (val(p + 'Name') || '').trim();
             const year = state.settings.academicYear;
             if (!cls || !subj) { toast('Select class and subject first', 'error'); return; }
-            if (!name) { toast('Enter a test / exercise name', 'error'); return; }
-            const isMajor = val('trType') === 'Major';
-            const outOf = parseInt(val('trOutOf'), 10) || 100;
-            const date = val('trDate');
+            if (!name) { toast(`Enter a ${p === 'trx' ? 'exercise' : 'test'} name`, 'error'); return; }
+            const isMajor = p === 'trx' ? false : val(p + 'Type') === 'Major';
+            const outOf = parseInt(val(p + 'OutOf'), 10) || 100;
+            const date = val(p + 'Date');
             const cfg = getSubjectConfig(subj);
             const caMax = cfg.caMax || 40;
             let count = 0, caCount = 0;
             state.students.filter(s => s.class === cls && s.status === 'Active').forEach(s => {
-                const el = document.getElementById('tm_' + s.id);
+                const el = document.getElementById('tm_' + p + '_' + s.id);
                 if (!el || String(el.value).trim() === '') return;
                 const mark = Math.max(0, parseFloat(el.value) || 0);
                 const pct = outOf ? Math.round(mark / outOf * 1000) / 10 : 0;
-                const existing = state.marks.findIndex(m => m.type === 'Test' && m.studentId === s.id && m.subject === subj && m.term === term && m.year === year && m.label === name);
+                const existing = state.marks.findIndex(m => m.type === 'Test' && isInCategory(m, p) && m.studentId === s.id && m.subject === subj && m.term === term && m.year === year && m.label === name);
                 const entry = {
-                    id: 'm' + Date.now() + s.id + 't',
+                    id: 'm' + Date.now() + s.id + p,
                     studentId: s.id,
                     studentName: s.name,
                     class: cls,
                     subject: subj,
                     term,
                     type: 'Test',
+                    category: testCatOf(p),
+                    showInReport: p === 'trx' ? false : (isMajor || val(p + 'Type') === 'Test'),
                     label: name,
                     mark,
                     outOf,
@@ -4656,7 +4859,7 @@
                 if (existing >= 0) state.marks[existing] = entry;
                 else state.marks.push(entry);
                 count++;
-                if (isMajor) {
+                if (p === 'trs' && isMajor) {
                     const ca = Math.round(Math.min(mark / outOf, 1) * caMax * 10) / 10;
                     const caExisting = state.marks.findIndex(m => m.type === 'CA' && m.studentId === s.id && m.subject === subj && m.term === term && m.year === year);
                     const caEntry = {
@@ -4685,19 +4888,24 @@
             if (!count) { toast('Enter some marks first', 'error'); return; }
             invalidateReportCache();
             saveState();
-            renderTestsList();
-            renderTestEntryGrid();
-            toast(`${count} test mark(s) saved${isMajor ? ` — CA applied for ${caCount} learner(s)` : ''}`, 'success');
+            renderTestsList(p);
+            renderTestEntryGrid(p);
+            toast(`${count} ${p === 'trx' ? 'exercise' : 'test'} mark(s) saved${isMajor ? ` — CA applied for ${caCount} learner(s)` : ''}`, 'success');
         }
 
-        function deleteTest(label) {
-            if (!confirm(`Delete all records for "${label}"?`)) return;
-            state.marks = state.marks.filter(m => !(m.type === 'Test' && m.label === label));
-            state.marks = state.marks.filter(m => !(m.type === 'CA' && m.fromTest === label));
+        function deleteTest(label, p) {
+            if (!p) p = 'trs';
+            const cat = testCatOf(p);
+            const keep = p === 'trx' ? false : true;
+            const filterFn = m => m.type === 'Test' && m.label === label && (p === 'trx' ? m.category === 'exercise' : m.category !== 'exercise');
+            const n = state.marks.filter(filterFn).length;
+            if (!confirm(`Delete all ${n} record(s) for "${label}"${p === 'trx' ? ' (exercise)' : ''}?`)) return;
+            state.marks = state.marks.filter(m => !filterFn(m));
+            if (keep) state.marks = state.marks.filter(m => !(m.type === 'CA' && m.fromTest === label));
             invalidateReportCache();
             saveState();
-            loadTestRegister();
-            toast('Test records deleted', 'success');
+            loadTestRegister(p);
+            toast('Records deleted', 'success');
         }
 
         function renderAllMarks() {
@@ -5442,6 +5650,14 @@
             });
             const subjects = state.subjects.filter(x => names.indexOf(x) !== -1)
                 .concat(names.filter(x => state.subjects.indexOf(x) === -1));
+            const testsByStudent = {};
+            state.marks.forEach(m => {
+                if (m.type !== 'Test' || m.term !== term || m.year !== year || m.category === 'exercise') return;
+                if (m.major !== true && m.showInReport !== true) return;
+                const pct = (m.pct !== undefined && m.pct !== null) ? m.pct : (m.outOf ? Math.round(m.mark / m.outOf * 1000) / 10 : 0);
+                if (!testsByStudent[m.studentId]) testsByStudent[m.studentId] = [];
+                testsByStudent[m.studentId].push({ subject: m.subject, label: m.label || 'Test', mark: m.mark, outOf: m.outOf || 100, major: !!m.major, total: pct, grade: getGrade(pct) });
+            });
             const totalsBySubject = {};
             subjects.forEach(sub => { totalsBySubject[sub] = []; });
             const rows = {};
@@ -5462,6 +5678,8 @@
                 const presentDays = sAtt.filter(a => a.records[s.id] === 'P').length;
                 const totalDays = sAtt.length;
                 rows[s.id] = { student: s, term, year, subjects: cells, scoredCount: scored.length, avgMark,
+                    tests: (testsByStudent[s.id] || []).sort((a, b) =>
+                        (subjects.indexOf(a.subject) - subjects.indexOf(b.subject)) || a.label.localeCompare(b.label)),
                     presentDays, totalDays, attPct: totalDays ? Math.round(presentDays / totalDays * 100) : 0 };
             });
             const classAvgs = {};
@@ -5499,7 +5717,7 @@
 
         function studentReportData(student, term) {
             const d = reportClassData(student.class, term).rows[student.id];
-            return d || { student, term, year: state.settings.academicYear, subjects: [], scoredCount: 0, avgMark: 0, presentDays: 0, totalDays: 0, attPct: 0 };
+            return d || { student, term, year: state.settings.academicYear, subjects: [], tests: [], scoredCount: 0, avgMark: 0, presentDays: 0, totalDays: 0, attPct: 0 };
         }
 
         function classRankMap(cls, term) {
@@ -5531,7 +5749,13 @@
         function reportCardHtml(data, rank) {
             const s = data.student;
             const rm = reportRemarksFor(data);
-            const isBlank = data.scoredCount === 0;
+            const isBlank = data.scoredCount === 0 && !(data.tests || []).length;
+            const subjRowsHtml = data.subjects.length ? data.subjects.map(sa => {
+                return `<tr><td><strong>${sa.subject}</strong></td><td>${sa.ca === null ? '—' : sa.ca}</td><td>${sa.paper === null ? '—' : sa.paper}</td><td><strong>${sa.total === null ? '—' : sa.total}</strong></td><td>${sa.classAvg}</td><td class="${sa.total === null ? '' : sa.grade}">${sa.grade}</td><td>${sa.position || '—'}</td><td style="font-size:11px;">${rm.useSubj ? sa.remark : '—'}</td></tr>`;
+            }).join('') : '<tr><td colspan="8" style="color:var(--text-light)">No subjects configured yet.</td></tr>';
+            const testRowsHtml = (data.tests || []).map(t => {
+                return `<tr style="background:#faf5ff;"><td style="padding-left:18px;">🧪 <em>${t.subject} — ${t.label}${t.major ? ' (Major)' : ''}</em></td><td>—</td><td>—</td><td><strong>${t.total}%</strong></td><td>—</td><td class="${t.grade}">${t.grade}</td><td>—</td><td style="font-size:11px;">Recorded test (${t.mark}/${t.outOf}) — not part of the subject average</td></tr>`;
+            }).join('');
             return `<div class="card" style="margin-bottom:14px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
                         <div><h3 style="color:var(--primary);font-size:16px;">${s.name}</h3><span style="color:var(--text-light);font-size:12px;">${s.admNo} | ${s.class} | ${data.term} | ${data.year}${rank ? ` | Position ${rank.pos} of ${rank.of}` : ''}</span></div>
@@ -5560,9 +5784,7 @@
                         </div>
                     </div>
                     <div class="table-wrap"><table class="marks-table"><thead><tr><th>Subject</th><th>CA Mark</th><th>Papers</th><th>Total</th><th>Class Avg</th><th>Grade</th><th>Position</th><th>Teacher Remark</th></tr></thead>
-                    <tbody>${data.subjects.length ? data.subjects.map(sa => {
-                        return `<tr><td><strong>${sa.subject}</strong></td><td>${sa.ca === null ? '—' : sa.ca}</td><td>${sa.paper === null ? '—' : sa.paper}</td><td><strong>${sa.total === null ? '—' : sa.total}</strong></td><td>${sa.classAvg}</td><td class="${sa.total === null ? '' : sa.grade}">${sa.grade}</td><td>${sa.position || '—'}</td><td style="font-size:11px;">${rm.useSubj ? sa.remark : '—'}</td></tr>`;
-                    }).join('') : '<tr><td colspan="8" style="color:var(--text-light)">No subjects configured yet.</td></tr>'}</tbody></table></div>
+                    <tbody>${subjRowsHtml}${testRowsHtml}</tbody></table></div>
                     <div style="margin-top:12px;background:#f8f9ff;padding:12px;border-radius:8px;font-size:13px;">
                         <div><strong>Class Teacher:</strong> ${rm.teacher}</div>
                         <div><strong>Head:</strong> ${rm.head}</div>
@@ -5602,6 +5824,7 @@
             const subjectLines = subjectAverages.length
                 ? subjectAverages.map(x => `• ${x.subject}: ${x.total}% (${x.grade}${x.position && x.position !== '—' ? ', pos ' + x.position.split(' of ')[0] : ''})`).join('\n')
                 : '• No marks recorded this term.';
+            const testLines = (data.tests || []).map(t => `• ${t.subject} — ${t.label}: ${t.total}% (${t.grade})`).join('\n');
             const contact = waContactLine();
 
             const lines = [
@@ -5613,7 +5836,9 @@
             ];
             if (rank) lines.push(`🏅 Position in class: ${rank.pos} of ${rank.of}`);
             lines.push(`✅ Attendance: ${data.presentDays}/${data.totalDays} days (${data.attPct}%)`);
-            lines.push('', '📚 Subjects:', subjectLines, '',
+            lines.push('', '📚 Subjects:', subjectLines);
+            if (testLines) lines.push('🧪 Recorded Tests:', testLines);
+            lines.push('',
                 `📝 Class Teacher: ${rm.teacher}`,
                 `👨‍💼 Head: ${rm.head}`,
                 '',
@@ -5696,11 +5921,15 @@
             doc.autoTable({
                 startY: y,
                 head: [['Subject', 'CA Mark', 'Papers', 'Mark', 'Class Avg', 'Position', 'Grade', 'Teacher Remark']],
-                body: data.subjects.length
-                    ? data.subjects.map(sa => [sa.subject, sa.ca === null ? '—' : sa.ca, sa.paper === null ? '—' : sa.paper,
-                        sa.total === null ? '—' : sa.total, sa.classAvg, sa.position || '—', sa.grade,
-                        rm.useSubj ? sa.remark : '-'])
-                    : [['—', '—', '—', '—', '—', '—', '—', 'No subjects configured']],
+                body: (() => {
+                    const rows = data.subjects.map(sa => [sa.subject, sa.ca === null ? '' : sa.ca, sa.paper === null ? '' : sa.paper,
+                        sa.total === null ? '' : sa.total, sa.classAvg, sa.position || '', sa.grade,
+                        rm.useSubj ? sa.remark : '-']);
+                    (data.tests || []).forEach(t => rows.push([`Test: ${t.subject} — ${t.label}${t.major ? ' (Major)' : ''}`, '', '', t.total + '%', '', '',
+                        t.grade, `Recorded test (${t.mark}/${t.outOf})`]));
+                    if (!rows.length) rows.push(['—', '', '', '', '', '', '', 'No subjects configured']);
+                    return rows;
+                })(),
                 styles: { fontSize: 9 },
                 headStyles: { fillColor: [26, 35, 126] }
             });
